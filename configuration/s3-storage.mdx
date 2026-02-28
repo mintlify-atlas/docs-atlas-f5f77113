@@ -1,0 +1,439 @@
+---
+title: S3 Storage Configuration
+description: Configure S3-compatible object storage for automatic crawl data backup
+---
+
+## Overview
+
+ScrapAI can automatically upload crawl results to S3-compatible object storage for backup, archiving, and sharing across systems. This feature currently works with Airflow workflows.
+
+<Note>
+**Current Limitation:** S3 upload is only supported in Airflow workflows. Regular `./scrapai crawl` commands do not upload to S3 yet.
+</Note>
+
+## Supported Providers
+
+Works with any S3-compatible object storage:
+
+- **Hetzner Object Storage** ⭐ **(Recommended)** - European provider, excellent pricing, free egress
+- **AWS S3** - Amazon's original object storage
+- **DigitalOcean Spaces** - Simple, developer-friendly
+- **Wasabi** - Hot cloud storage, cheaper than S3
+- **Backblaze B2** - Cost-effective alternative
+- **Cloudflare R2** - Zero egress fees
+- **MinIO** - Self-hosted S3-compatible storage
+- Any other S3-compatible provider
+
+## Configuration
+
+### Environment Variables
+
+Add S3 credentials to `.env`:
+
+```bash
+# S3-Compatible Object Storage
+S3_ACCESS_KEY=your_access_key_here
+S3_SECRET_KEY=your_secret_key_here
+S3_ENDPOINT=https://fsn1.your-objectstorage.com
+S3_BUCKET=scrapai-crawls
+```
+
+<ParamField path="S3_ACCESS_KEY" type="string" required={true}>
+  S3-compatible storage access key.
+  
+  Get this from your storage provider's dashboard or API settings.
+</ParamField>
+
+<ParamField path="S3_SECRET_KEY" type="string" required={true}>
+  S3-compatible storage secret key.
+  
+  Keep this secure - never commit to version control.
+</ParamField>
+
+<ParamField path="S3_ENDPOINT" type="string" required={true}>
+  S3-compatible storage endpoint URL.
+  
+  **Examples:**
+  - Hetzner: `https://fsn1.your-objectstorage.com`
+  - DigitalOcean: `https://nyc3.digitaloceanspaces.com`
+  - Wasabi: `https://s3.us-east-1.wasabisys.com`
+  - AWS S3: `https://s3.us-east-1.amazonaws.com`
+</ParamField>
+
+<ParamField path="S3_BUCKET" type="string" required={true}>
+  S3 bucket name for storing crawl results.
+  
+  **Example:** `scrapai-crawls`
+  
+  Create the bucket in your storage provider before enabling uploads.
+</ParamField>
+
+## Provider-Specific Setup
+
+### Hetzner Object Storage (Recommended)
+
+```bash
+# Get your endpoint from Hetzner Cloud Console → Object Storage
+S3_ACCESS_KEY=your_hetzner_access_key
+S3_SECRET_KEY=your_hetzner_secret_key
+S3_ENDPOINT=https://fsn1.your-objectstorage.com  # Falkenstein, Germany
+S3_BUCKET=scrapai-crawls
+```
+
+**Available Regions:**
+- `fsn1` - Falkenstein, Germany
+- `hel1` - Helsinki, Finland
+- `nbg1` - Nuremberg, Germany
+
+<Tip>
+Hetzner offers **free egress** - no charges for downloading your data.
+</Tip>
+
+### DigitalOcean Spaces
+
+```bash
+S3_ACCESS_KEY=your_spaces_access_key
+S3_SECRET_KEY=your_spaces_secret_key
+S3_ENDPOINT=https://nyc3.digitaloceanspaces.com  # New York
+S3_BUCKET=scrapai-crawls
+```
+
+**Available Regions:**
+- `nyc3` - New York
+- `sfo3` - San Francisco
+- `sgp1` - Singapore
+- `ams3` - Amsterdam
+
+### Wasabi
+
+```bash
+S3_ACCESS_KEY=your_wasabi_access_key
+S3_SECRET_KEY=your_wasabi_secret_key
+S3_ENDPOINT=https://s3.us-east-1.wasabisys.com   # US East
+S3_BUCKET=scrapai-crawls
+```
+
+**Available Regions:**
+- `s3.us-east-1.wasabisys.com` - US East (Virginia)
+- `s3.us-east-2.wasabisys.com` - US East (Virginia)
+- `s3.us-central-1.wasabisys.com` - US Central (Texas)
+- `s3.us-west-1.wasabisys.com` - US West (Oregon)
+- `s3.eu-central-1.wasabisys.com` - EU Central (Amsterdam)
+- `s3.eu-central-2.wasabisys.com` - EU Central (Frankfurt)
+- `s3.ap-northeast-1.wasabisys.com` - Asia Pacific (Tokyo)
+
+### AWS S3
+
+```bash
+S3_ACCESS_KEY=your_aws_access_key_id
+S3_SECRET_KEY=your_aws_secret_access_key
+S3_ENDPOINT=https://s3.us-east-1.amazonaws.com   # US East
+S3_BUCKET=scrapai-crawls
+```
+
+<Warning>
+AWS S3 has high egress costs ($0.09/GB). Consider providers with free egress for frequent downloads.
+</Warning>
+
+### Backblaze B2
+
+```bash
+S3_ACCESS_KEY=your_b2_key_id
+S3_SECRET_KEY=your_b2_application_key
+S3_ENDPOINT=https://s3.us-west-000.backblazeb2.com
+S3_BUCKET=scrapai-crawls
+```
+
+Check your B2 dashboard for the correct endpoint URL.
+
+### Cloudflare R2
+
+```bash
+S3_ACCESS_KEY=your_r2_access_key
+S3_SECRET_KEY=your_r2_secret_key
+S3_ENDPOINT=https://<account_id>.r2.cloudflarestorage.com
+S3_BUCKET=scrapai-crawls
+```
+
+<Tip>
+Cloudflare R2 has **zero egress fees** - best for frequent data downloads.
+</Tip>
+
+### MinIO (Self-Hosted)
+
+```bash
+S3_ACCESS_KEY=minioadmin
+S3_SECRET_KEY=minioadmin
+S3_ENDPOINT=http://localhost:9000
+S3_BUCKET=scrapai-crawls
+```
+
+## How It Works
+
+### Upload Process
+
+1. Spider completes crawl in Airflow workflow
+2. Crawl results saved to `DATA_DIR/<project>/<spider>/crawls/crawl_TIMESTAMP.jsonl`
+3. If S3 configured, Airflow task uploads file to S3 bucket
+4. Files remain locally even after upload
+5. S3 path: `s3://<bucket>/<spider_name>/crawl_TIMESTAMP.jsonl`
+
+### Local Files
+
+All crawl data remains in your local `DATA_DIR` even after S3 upload. S3 is for backup/archiving, not a replacement for local storage.
+
+### Current Implementation
+
+- S3 upload is **only supported in Airflow workflows**
+- Regular `./scrapai crawl` commands do **not** upload to S3 (yet)
+- Airflow DAGs automatically detect S3 configuration
+- Upload happens in background after spider completes
+- Does not block crawling or slow down scraping
+
+## Verification
+
+### Check Configuration
+
+Airflow DAGs log S3 status on startup:
+
+```
+S3 Upload: ENABLED
+```
+
+or
+
+```
+S3 Upload: DISABLED (credentials not found)
+```
+
+If disabled, verify all 4 environment variables are set:
+- `S3_ACCESS_KEY`
+- `S3_SECRET_KEY`
+- `S3_ENDPOINT`
+- `S3_BUCKET`
+
+### Test Upload
+
+Manually test S3 connection:
+
+```bash
+# Install AWS CLI
+pip install awscli
+
+# Test upload
+echo "test" > test.txt
+aws s3 cp test.txt s3://your-bucket/test.txt \
+  --endpoint-url https://your-endpoint.com
+
+# List bucket contents
+aws s3 ls s3://your-bucket/ \
+  --endpoint-url https://your-endpoint.com
+```
+
+## Use Cases
+
+### Backup & Disaster Recovery
+
+- Automatic off-site backup of all crawl data
+- Protect against local disk failure
+- Easy restoration from S3 if needed
+
+### Data Sharing
+
+- Share crawl results across multiple systems
+- Centralized data storage for team access
+- Export data from one system, import on another
+
+### Archiving
+
+- Long-term storage of historical crawls
+- Cheaper than keeping on local SSD/NVMe
+- Compliance and audit requirements
+
+### Multi-Region Deployment
+
+- Run crawlers in multiple regions
+- All data centralized in S3 bucket
+- Access from anywhere
+
+## Cost Considerations
+
+### Storage Costs (per GB/month)
+
+| Provider | Storage Cost | Notes |
+|----------|--------------|-------|
+| Hetzner | ~$0.005 | European provider |
+| DigitalOcean Spaces | $0.02 | First 250GB free with droplet |
+| Wasabi | $0.0059 | Minimum 1TB |
+| AWS S3 | $0.023 | US East region |
+| Backblaze B2 | $0.005 | Good value |
+| Cloudflare R2 | $0.015 | Zero egress |
+
+### Egress Costs (downloading from S3)
+
+| Provider | Egress Cost | Notes |
+|----------|-------------|-------|
+| Hetzner | **Free** | No egress charges |
+| DigitalOcean | Free up to 1TB/month | Included with droplet |
+| Wasabi | **Free** | No egress charges |
+| AWS S3 | $0.09/GB | **Expensive!** |
+| Backblaze B2 | $0.01/GB | Reasonable |
+| Cloudflare R2 | **Free** | Zero egress fees |
+
+<Tip>
+**For frequent data downloads,** use providers with free/cheap egress:
+- Cloudflare R2 (zero egress)
+- Hetzner (free egress)
+- Wasabi (free egress)
+</Tip>
+
+## Troubleshooting
+
+### S3 upload not happening
+
+1. **Check `.env` has all 4 S3 variables set:**
+   ```bash
+   grep S3_ .env
+   ```
+
+2. **Verify credentials are correct:**
+   ```bash
+   aws s3 ls s3://your-bucket/ --endpoint-url https://your-endpoint.com
+   ```
+
+3. **Confirm bucket exists and is accessible**
+
+4. **Check Airflow DAG logs for errors**
+
+5. **Remember:** Regular `./scrapai crawl` does NOT upload to S3 (only Airflow workflows)
+
+### Authentication error
+
+```bash
+# Verify credentials
+echo $S3_ACCESS_KEY
+echo $S3_ENDPOINT
+
+# Test connection
+aws s3 ls --endpoint-url $S3_ENDPOINT
+```
+
+1. Double-check access key and secret key
+2. Verify endpoint URL is correct for your provider
+3. Ensure bucket exists in the same region as endpoint
+4. Check IAM permissions (AWS) or access policies (other providers)
+
+### Files not appearing in bucket
+
+1. **Check bucket name is correct:**
+   ```bash
+   echo $S3_BUCKET
+   ```
+
+2. **Verify upload task completed successfully in Airflow logs**
+
+3. **Browse S3 bucket with web console or CLI:**
+   ```bash
+   aws s3 ls s3://your-bucket/ --endpoint-url https://your-endpoint.com
+   ```
+
+4. **Check S3 path:** `s3://<bucket>/<spider_name>/crawl_*.jsonl`
+
+### Upload too slow
+
+1. Check network bandwidth to S3 provider
+2. Consider provider closer to your location
+3. Split large crawls into smaller batches
+4. Use provider with faster upload speeds
+
+### Bucket access denied
+
+1. **Verify bucket exists:**
+   ```bash
+   aws s3 ls --endpoint-url https://your-endpoint.com
+   ```
+
+2. **Check bucket permissions/policies**
+
+3. **For AWS S3, verify IAM user has permissions:**
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Action": [
+           "s3:PutObject",
+           "s3:GetObject",
+           "s3:ListBucket"
+         ],
+         "Resource": [
+           "arn:aws:s3:::scrapai-crawls",
+           "arn:aws:s3:::scrapai-crawls/*"
+         ]
+       }
+     ]
+   }
+   ```
+
+## Manual Upload Workaround
+
+For non-Airflow crawls, manually upload after crawl:
+
+```bash
+# After crawl completes
+aws s3 cp DATA_DIR/<project>/<spider>/crawls/crawl_20260223_143022.jsonl \
+  s3://your-bucket/<spider_name>/ \
+  --endpoint-url https://your-endpoint.com
+
+# Upload entire crawls directory
+aws s3 sync DATA_DIR/<project>/<spider>/crawls/ \
+  s3://your-bucket/<spider_name>/ \
+  --endpoint-url https://your-endpoint.com
+```
+
+## Best Practices
+
+1. **Create bucket before enabling uploads**
+   - Verify bucket exists and is accessible
+   - Test credentials with manual upload
+
+2. **Use meaningful bucket names**
+   - `scrapai-crawls` for all crawl data
+   - `scrapai-backup` for backups
+   - Include environment: `scrapai-prod`, `scrapai-dev`
+
+3. **Enable versioning (optional)**
+   - Protect against accidental overwrites
+   - Keep history of crawl data
+
+4. **Set lifecycle policies (optional)**
+   - Auto-delete old files after N days
+   - Move to cheaper storage tier after N days
+
+5. **Monitor storage costs**
+   - Track bucket size growth
+   - Review egress charges
+   - Clean up old/unused data
+
+6. **Secure credentials**
+   - Never commit `.env` to git
+   - Use IAM roles when possible (AWS)
+   - Rotate keys periodically
+
+## When to Use S3 Storage
+
+Recommend S3 setup when:
+
+- User asks about data backup or archiving
+- User needs to share crawl data across systems
+- User mentions cloud storage (S3, Hetzner, DigitalOcean Spaces, etc.)
+- User has large crawls and wants off-site storage
+- User is using Airflow workflows
+- User asks about data durability/redundancy
+
+## Related Documentation
+
+- [Environment Setup](/configuration/environment)
+- [Queue Management](/advanced/queue)
+- [Airflow Workflows](/advanced/airflow)

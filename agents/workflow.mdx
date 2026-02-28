@@ -1,0 +1,628 @@
+---
+title: 4-Phase Workflow
+description: Complete workflow documentation for building scrapers with AI agents
+---
+
+Every spider goes through 4 phases, executed sequentially and completely. The agent never skips steps—each phase builds on the previous one.
+
+<Steps>
+  <Step title="Phase 1: Analysis & Section Documentation">
+    Understand site structure, discover all content sections, document URL patterns
+  </Step>
+  <Step title="Phase 2: Rule Generation & Extraction Testing">
+    Create URL matching rules, choose extraction strategy, test on sample pages
+  </Step>
+  <Step title="Phase 3: Prepare Spider Configuration">
+    Create test and final spider JSON files with all rules and settings
+  </Step>
+  <Step title="Phase 4: Execution & Verification">
+    Test extraction quality on sample articles, import final spider for production
+  </Step>
+</Steps>
+
+**Only mark queue items complete when ALL phases pass.** If any fail: `./scrapai queue fail <id> -m "reason"`.
+
+## Phase 1: Analysis & Section Documentation
+
+**Goal:** Understand site structure, discover all content sections, document URL patterns.
+
+### For Non-Sitemap URLs
+
+<Steps>
+  <Step title="Inspect homepage">
+    ```bash
+    ./scrapai inspect https://site.com/ --project proj
+    ```
+    
+    Fetches the homepage HTML and saves it to `data/proj/spider/analysis/page.html`
+  </Step>
+  
+  <Step title="Extract all URLs">
+    ```bash
+    ./scrapai extract-urls --file data/proj/spider/analysis/page.html --output data/proj/spider/analysis/all_urls.txt
+    ```
+    
+    Extracts every link from the homepage for categorization
+  </Step>
+  
+  <Step title="Read and categorize URLs">
+    Review `all_urls.txt` and categorize:
+    - **Content pages:** Articles, blog posts, news items
+    - **Navigation pages:** Category pages, section indexes
+    - **Utility pages:** About, contact, search, account
+  </Step>
+  
+  <Step title="Drill into sections">
+    Inspect one section at a time (inspector overwrites `page.html`):
+    
+    ```bash
+    ./scrapai inspect https://site.com/blog/some-article --project proj
+    ./scrapai analyze data/proj/spider/analysis/page.html
+    ```
+    
+    Document findings in `sections.md`
+  </Step>
+</Steps>
+
+### Exclusion Policy
+
+**ONLY exclude:**
+- About, contact, donate, account, legal, search pages
+- PDFs and non-HTML files
+
+**Everything else: explore and include.** When uncertain, include it.
+
+**User instructions always override defaults.**
+
+### For Sitemap URLs
+
+If the URL points to an XML sitemap (e.g., `https://site.com/sitemap.xml`):
+
+1. Inspect the sitemap to understand structure
+2. Identify URL patterns for content pages
+3. Use `USE_SITEMAP: true` in spider config
+4. See [sitemap documentation](/essentials/sitemap) for details
+
+### Phase 1 Complete When:
+
+<Check>
+  - `sections.md` exists in `data/<project>/<spider>/analysis/`
+  - ALL content section types identified (blog, news, reports, etc.)
+  - URL pattern documented for EACH section type
+  - Example URLs listed (minimum 3 per section) for Phase 2 testing
+  - Exclusions documented
+</Check>
+
+## Phase 2: Rule Generation & Extraction Testing
+
+**Goal:** Create URL matching rules, choose extraction strategy (generic extractors, custom selectors, or callbacks).
+
+### Decision Point: What Type of Content?
+
+<CardGroup cols={2}>
+  <Card title="Articles/Blog Posts" icon="newspaper">
+    Use `parse_article` with generic extractors (newspaper, trafilatura)
+  </Card>
+  <Card title="Products/Jobs/Listings" icon="grid">
+    Use named callbacks with custom fields
+  </Card>
+</CardGroup>
+
+### For Article Content (title/content/author/date)
+
+<Steps>
+  <Step title="Create rules from sections.md">
+    Use the URL patterns documented in Phase 1 to create rules for each section.
+  </Step>
+  
+  <Step title="Test generic extractors">
+    Inspect an article page and analyze its structure:
+    
+    ```bash
+    # Default: lightweight HTTP (works for most sites)
+    ./scrapai inspect https://website.com/article-url --project proj
+    
+    # Use --browser if site needs JavaScript
+    ./scrapai inspect https://website.com/article-url --project proj --browser
+    
+    # Use --cloudflare if site is protected
+    ./scrapai inspect https://website.com/article-url --project proj --cloudflare
+    
+    ./scrapai analyze data/proj/spider/analysis/page.html
+    ```
+    
+    If it has clean `<article>` tags / semantic HTML → generic extractors work.
+  </Step>
+  
+  <Step title="If generic extractors fail">
+    Discover custom CSS selectors using `./scrapai analyze`:
+    
+    ```bash
+    ./scrapai analyze data/proj/spider/analysis/page.html
+    ./scrapai analyze data/proj/spider/analysis/page.html --test "h1.article-title"
+    ./scrapai analyze data/proj/spider/analysis/page.html --find "price"
+    ```
+    
+    See [extractor documentation](/essentials/extractors) for selector discovery.
+  </Step>
+  
+  <Step title="Consolidate into final_spider.json">
+    Create the complete spider config with all rules and settings.
+  </Step>
+</Steps>
+
+### For Non-Article Content (products, jobs, etc.)
+
+<Steps>
+  <Step title="Analyze a sample page">
+    ```bash
+    ./scrapai analyze data/proj/spider/analysis/page.html
+    ```
+  </Step>
+  
+  <Step title="Identify all fields to extract">
+    For e-commerce: name, price, rating, availability, images
+    
+    For jobs: title, company, salary, location, description
+    
+    For real estate: address, price, bedrooms, square footage, features
+  </Step>
+  
+  <Step title="Discover CSS selectors for each field">
+    ```bash
+    ./scrapai analyze data/proj/spider/analysis/page.html --test "h1.product-name::text"
+    ./scrapai analyze data/proj/spider/analysis/page.html --find "price"
+    ```
+  </Step>
+  
+  <Step title="Create callback config">
+    Build the callback config with all fields + processors:
+    
+    ```json
+    {
+      "callbacks": {
+        "parse_product": {
+          "extract": {
+            "name": {"css": "h1.title::text"},
+            "price": {
+              "css": "span.price::text",
+              "processors": [
+                {"type": "strip"},
+                {"type": "regex", "pattern": "\\$([\\d.]+)"},
+                {"type": "cast", "to": "float"}
+              ]
+            },
+            "features": {"css": "li.feature::text", "get_all": true}
+          }
+        }
+      }
+    }
+    ```
+  </Step>
+  
+  <Step title="Test on multiple example pages">
+    Verify selectors work across 2-3 different items to ensure consistency.
+  </Step>
+  
+  <Step title="Consolidate into final_spider.json">
+    Create the complete spider config with callbacks section.
+  </Step>
+</Steps>
+
+See [callbacks documentation](/essentials/callbacks) for syntax and examples.
+
+### Phase 2 Complete When:
+
+<Check>
+  - `final_spider.json` created with all URL matching rules
+  - Extractor strategy chosen:
+    - **Generic extractors:** `EXTRACTOR_ORDER` configured
+    - **Custom selectors:** `CUSTOM_SELECTORS` for title, content, author, date
+    - **Named callbacks:** `callbacks` dict with custom field extraction
+  - All settings documented (Cloudflare, Playwright, etc. if needed)
+</Check>
+
+## Phase 3: Prepare Spider Configuration
+
+**Goal:** Create test and final spider JSON files with all rules and settings.
+
+### Test Spider Config
+
+Create `test_spider.json` with:
+- **5 sample article URLs** (not full start_urls)
+- **`follow: false`** on all rules (no crawling, just extraction testing)
+- Same extractor settings as final config
+
+```json
+{
+  "name": "example_com",
+  "allowed_domains": ["example.com"],
+  "start_urls": [
+    "https://example.com/article-1",
+    "https://example.com/article-2",
+    "https://example.com/article-3",
+    "https://example.com/article-4",
+    "https://example.com/article-5"
+  ],
+  "rules": [
+    {
+      "allow": ["/.*"],
+      "callback": "parse_article",
+      "follow": false
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+### Final Spider Config
+
+Create `final_spider.json` with:
+- Full start_urls (homepage, section pages)
+- All URL matching rules with proper `follow` settings
+- Complete extractor/callback configuration
+- All spider settings (delays, concurrency, etc.)
+
+Include `source_url` when processing from queue:
+
+```json
+{
+  "name": "spider_name",
+  "source_url": "https://original-queue-url.com",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/"],
+  "rules": [
+    {
+      "allow": ["/blog/.*"],
+      "callback": "parse_article",
+      "follow": false
+    },
+    {
+      "allow": ["/blog/?$"],
+      "follow": true
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+<Warning>
+  **Do NOT import yet.** Importing happens in Phase 4 after validation.
+</Warning>
+
+### Phase 3 Complete When:
+
+<Check>
+  - `test_spider.json` created with 5 article URLs, `follow: false`
+  - `final_spider.json` created with all start_urls, rules, and settings
+  - `source_url` included in config (if processing from queue)
+</Check>
+
+## Phase 4: Execution & Verification
+
+**Goal:** Test extraction quality on sample articles, then import final spider for production.
+
+### Step 4A: Test Extraction (5 Articles)
+
+<Steps>
+  <Step title="Import test spider">
+    ```bash
+    ./scrapai spiders import test_spider.json --project proj
+    ```
+  </Step>
+  
+  <Step title="Run test crawl">
+    ```bash
+    ./scrapai crawl spider_name --limit 5 --project proj
+    ```
+    
+    Crawls exactly 5 URLs and saves results to database.
+  </Step>
+  
+  <Step title="Verify output">
+    ```bash
+    ./scrapai show spider_name --limit 5 --project proj
+    ```
+    
+    Check that all fields are extracted correctly:
+    - Title present and accurate
+    - Content complete (not truncated)
+    - Author extracted (if available)
+    - Date parsed correctly
+  </Step>
+  
+  <Step title="Fix if needed">
+    If extraction is bad:
+    - Review selectors in Phase 2
+    - Update `test_spider.json`
+    - Re-import and re-test
+    
+    **Only proceed when extraction is good.**
+  </Step>
+</Steps>
+
+### Step 4B: Import Final Spider
+
+<Steps>
+  <Step title="Import final spider">
+    ```bash
+    ./scrapai spiders import final_spider.json --project proj
+    ```
+    
+    Using the same spider name auto-updates the existing config.
+  </Step>
+  
+  <Step title="Spider is ready for production">
+    The spider is now in the database and ready for full crawls.
+    
+    **Do NOT run production crawls yourself** as they can take hours or days.
+  </Step>
+</Steps>
+
+### Production Crawls (User Runs)
+
+<Warning>
+  **CRITICAL: NEVER run crawl without --limit flag yourself.**
+  
+  Production crawls can take hours or days depending on site size. You MUST NOT run them directly.
+</Warning>
+
+**Testing (agent runs this):**
+```bash
+./scrapai crawl <name> --project <name> --limit 5
+```
+
+**Production (user runs this):**
+```bash
+./scrapai crawl <name> --project <name>
+```
+
+Production crawls:
+- Export to `DATA_DIR/<project>/<spider>/crawls/crawl_TIMESTAMP.jsonl`
+- Enable checkpoint (Ctrl+C to pause, resume with same command)
+- Can take hours or days for large sites
+
+**If user asks to run a full/production crawl:**
+
+1. Explain: "Full crawls can take hours/days. I can't run this for you as it would block our session."
+2. Provide the exact command:
+   ```bash
+   ./scrapai crawl <spider_name> --project <project_name>
+   ```
+3. Tell them:
+   - Crawl output will be exported to `DATA_DIR/<project>/<spider>/crawls/crawl_TIMESTAMP.jsonl`
+   - Checkpoint is enabled - press Ctrl+C to pause, run same command to resume
+
+### Phase 4 Complete When:
+
+<Check>
+  - Test crawl completed with `--limit 5`
+  - `show` output verified: title, content, author, date extracted correctly
+  - Final spider imported to database
+  - Spider ready for production (user will run full crawl)
+</Check>
+
+## Settings Reference
+
+### Generic Extractors (Default)
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+Use when articles have clean semantic HTML (`<article>`, `<time>`, etc.).
+
+### Custom Selectors
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom", "newspaper", "trafilatura"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.article-title",
+      "content": "div.article-body",
+      "author": "span.author-name",
+      "date": "time.published-date"
+    }
+  }
+}
+```
+
+Use when generic extractors fail to find the correct fields.
+
+### JavaScript-Rendered Sites
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.title",
+      "content": "div.content"
+    },
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "PLAYWRIGHT_DELAY": 5
+  }
+}
+```
+
+Use when content is loaded by JavaScript after page load.
+
+### Cloudflare Bypass
+
+<Warning>
+  Test WITHOUT `--cloudflare` first. Only enable if inspector fails with 403/503 or "Checking your browser".
+</Warning>
+
+**Hybrid mode (default, 20-100x faster):**
+
+```json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "hybrid",
+    "CLOUDFLARE_COOKIE_REFRESH_THRESHOLD": 600,
+    "CF_MAX_RETRIES": 5,
+    "CF_RETRY_INTERVAL": 1,
+    "CF_POST_DELAY": 5
+  }
+}
+```
+
+**Browser-only mode (legacy, slow — only if hybrid fails):**
+
+```json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "browser_only",
+    "CONCURRENT_REQUESTS": 1
+  }
+}
+```
+
+See [Cloudflare documentation](/essentials/cloudflare) for details.
+
+### Sitemap Spider
+
+```json
+{
+  "settings": {
+    "USE_SITEMAP": true,
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+See [sitemap documentation](/essentials/sitemap) for details.
+
+### DeltaFetch (Incremental Crawling)
+
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+
+Skips already-scraped URLs, reducing bandwidth by 80-90% on re-crawls.
+
+See [DeltaFetch documentation](/essentials/deltafetch) for details.
+
+### Infinite Scroll
+
+```json
+{
+  "settings": {
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 5,
+    "SCROLL_DELAY": 1.0
+  }
+}
+```
+
+Use for sites that load content dynamically as you scroll.
+
+## Parallel Queue Processing
+
+When processing multiple websites from the queue, the agent can work in parallel:
+
+<Steps>
+  <Step title="Max 5 websites in parallel">
+    Batch larger queues (e.g., 12 websites → 5+5+2)
+  </Step>
+  
+  <Step title="Phases within each website are sequential">
+    Each website goes through Phase 1→2→3→4 in order, but multiple websites can be at different phases simultaneously
+  </Step>
+  
+  <Step title="Report progress per batch">
+    Update user after each batch completes. Report failures immediately.
+  </Step>
+</Steps>
+
+**Task agent prompt template:**
+
+```
+Process website from queue:
+Queue Item ID: <id> | URL: <url> | Project: <project> | Instructions: <custom_instruction>
+
+Complete Phases 1-4 per CLAUDE.md.
+On success: run `queue complete <id>`.
+On failure: run `queue fail <id> -m "reason"`.
+
+Report back: status, spider name, queue item ID, summary.
+```
+
+See [queue documentation](/essentials/queue) for details.
+
+## Common Pitfalls
+
+<AccordionGroup>
+  <Accordion title="Skipping phases">
+    **Never skip phases.** Each phase builds on the previous one. If you skip Phase 1, you won't have URL patterns for Phase 2. If you skip Phase 2, you won't have extraction rules for Phase 3.
+    
+    Always complete 1→2→3→4 sequentially.
+  </Accordion>
+  
+  <Accordion title="Running commands too fast">
+    **Run commands ONE AT A TIME.** Never chain with `&&`. Read the output before proceeding to the next command.
+    
+    Bad:
+    ```bash
+    ./scrapai inspect https://site.com --project proj && ./scrapai analyze data/proj/spider/analysis/page.html
+    ```
+    
+    Good:
+    ```bash
+    ./scrapai inspect https://site.com --project proj
+    # Read output, check for errors
+    ./scrapai analyze data/proj/spider/analysis/page.html
+    ```
+  </Accordion>
+  
+  <Accordion title="Forgetting --project flag">
+    **ALWAYS use `--project <name>` on ALL spider, queue, crawl, show, and export commands.**
+    
+    Without it, the command will fail or use the wrong project.
+  </Accordion>
+  
+  <Accordion title="Running production crawls">
+    **NEVER run `crawl` without `--limit` flag.**
+    
+    Production crawls can take hours or days. You MUST NOT run them directly. Always use `--limit 5` for testing.
+  </Accordion>
+  
+  <Accordion title="Reading HTML files directly">
+    **NEVER use Read/Grep on HTML files.** Always use `./scrapai analyze`.
+    
+    The analyzer provides structured output, selector testing, and field discovery. Raw HTML is hard to parse and easy to misinterpret.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/api-reference/introduction">
+    Complete CLI command documentation
+  </Card>
+  <Card title="Extractors" icon="code" href="/essentials/extractors">
+    Learn about extraction strategies and selector discovery
+  </Card>
+  <Card title="Callbacks" icon="function" href="/essentials/callbacks">
+    Custom field extraction for non-article content
+  </Card>
+  <Card title="Cloudflare" icon="shield" href="/essentials/cloudflare">
+    Bypass Cloudflare protection with cookie caching
+  </Card>
+</CardGroup>

@@ -1,0 +1,388 @@
+---
+title: Playwright Extractor
+description: Browser rendering for JavaScript-heavy sites
+---
+
+Playwright extractor uses a headless browser to render JavaScript-heavy pages before extraction. Essential for Single Page Applications (SPAs) and dynamically loaded content.
+
+## When to Use
+
+<Check>Content loaded by JavaScript (React, Vue, Angular apps)</Check>
+<Check>AJAX/fetch requests after page load</Check>
+<Check>Infinite scroll pages</Check>
+<Check>Content appears after delay</Check>
+<Check>Dynamic rendering based on user interaction</Check>
+
+<Warning>Slower than HTML-based extractors (newspaper, trafilatura)</Warning>
+<Warning>Higher resource usage (browser instance per request)</Warning>
+<Warning>Use low concurrency (2-4 requests)</Warning>
+
+## Configuration
+
+### Basic Playwright
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "CONCURRENT_REQUESTS": 2,
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+**Behavior:**
+1. Playwright renders page in browser
+2. Waits for page load
+3. Extracts HTML
+4. Trafilatura processes rendered HTML
+
+### Wait for Selector
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "CONCURRENT_REQUESTS": 2
+  }
+}
+```
+
+**Behavior:**
+- Wait for `.article-content` element to appear (max 30s)
+- If selector doesn't appear → extraction fails
+
+### Additional Delay
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".loaded",
+    "PLAYWRIGHT_DELAY": 5
+  }
+}
+```
+
+**Behavior:**
+- Wait for `.loaded` element
+- Wait additional 5 seconds
+- Then extract
+
+### Infinite Scroll
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".quote",
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 10,
+    "SCROLL_DELAY": 2.0
+  },
+  "rules": [
+    {"allow": [".*"], "follow": false}
+  ]
+}
+```
+
+**Behavior:**
+1. Wait for `.quote` element
+2. Scroll to bottom
+3. Wait 2 seconds
+4. Repeat up to 10 times
+5. Extract all content from full page
+
+## Settings Reference
+
+<ParamField path="PLAYWRIGHT_WAIT_SELECTOR" type="string" default="null">
+  CSS selector to wait for before extraction
+  
+  **Timeout:** 30 seconds
+  
+  **Use when:** Content loads via AJAX/fetch
+  
+  **Example:**
+  ```json
+  "PLAYWRIGHT_WAIT_SELECTOR": ".article-content"
+  ```
+</ParamField>
+
+<ParamField path="PLAYWRIGHT_DELAY" type="float" default="null">
+  Additional seconds to wait after page load
+  
+  **Use when:** Content appears with unpredictable timing
+  
+  **Example:**
+  ```json
+  "PLAYWRIGHT_DELAY": 5
+  ```
+</ParamField>
+
+<ParamField path="INFINITE_SCROLL" type="boolean" default="false">
+  Enable infinite scroll behavior
+  
+  **Requires:** `"playwright"` in `EXTRACTOR_ORDER`
+  
+  **Example:**
+  ```json
+  "INFINITE_SCROLL": true
+  ```
+</ParamField>
+
+<ParamField path="MAX_SCROLLS" type="integer" default="5">
+  Maximum scroll iterations
+  
+  **Example:**
+  ```json
+  "MAX_SCROLLS": 10
+  ```
+</ParamField>
+
+<ParamField path="SCROLL_DELAY" type="float" default="1.0">
+  Delay between scrolls (seconds)
+  
+  **Example:**
+  ```json
+  "SCROLL_DELAY": 2.0
+  ```
+</ParamField>
+
+## Identifying JS-Rendered Sites
+
+**Signs page needs Playwright:**
+
+1. **Minimal HTML:** View page source shows almost empty body
+   ```html
+   <div id="app"></div>
+   <script src="bundle.js"></script>
+   ```
+
+2. **Content in script tags:** Data exists only as JavaScript objects
+
+3. **Loading placeholders:** "Loading..." text or spinner elements
+
+4. **Generic extractors fail:** Newspaper/trafilatura return no content
+
+**Test without browser:**
+```bash
+scrapai inspect https://example.com/article --project proj
+scrapai analyze data/proj/spider/analysis/page.html
+```
+
+If HTML is minimal/empty → use Playwright
+
+## Common Wait Selectors
+
+```css
+/* Article loaded */
+.article-content
+.post-body
+#main-content
+
+/* Generic "loaded" markers */
+.loaded
+[data-loaded="true"]
+
+/* Specific content */
+.quote
+.product-info
+#posts
+
+/* List items */
+ul.items li:nth-child(3)  /* Wait for 3rd item */
+```
+
+## Performance Optimization
+
+### Reduce Concurrency
+
+```json
+{
+  "CONCURRENT_REQUESTS": 2,  // Low concurrency for browser requests
+  "DOWNLOAD_DELAY": 2
+}
+```
+
+**Why:**
+- Browser instances use significant memory
+- Too many concurrent browsers → system overload
+
+### Use Playwright Only When Needed
+
+```json
+// Good: Try fast extractors first
+"EXTRACTOR_ORDER": ["newspaper", "playwright"]
+
+// Bad: Always use slow browser
+"EXTRACTOR_ORDER": ["playwright"]
+```
+
+### Hybrid Strategy
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura", "playwright"],
+    "CONCURRENT_REQUESTS": 8
+  }
+}
+```
+
+**Behavior:**
+- Most pages use fast trafilatura
+- Only JS-heavy pages trigger Playwright
+- Average concurrency remains high
+
+## Examples
+
+### SPA (React/Vue/Angular)
+
+```json
+{
+  "name": "spa_blog",
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": "article.post",
+    "PLAYWRIGHT_DELAY": 2,
+    "CONCURRENT_REQUESTS": 2,
+    "DOWNLOAD_DELAY": 3
+  }
+}
+```
+
+### Delayed Content
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "custom"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".content-loaded",
+    "PLAYWRIGHT_DELAY": 5,
+    "CUSTOM_SELECTORS": {
+      "title": "h1.title",
+      "content": "div.main-content"
+    }
+  }
+}
+```
+
+### Infinite Scroll (Quotes Example)
+
+```json
+{
+  "name": "quotes_scroll",
+  "source_url": "https://quotes.toscrape.com/scroll",
+  "allowed_domains": ["quotes.toscrape.com"],
+  "start_urls": ["https://quotes.toscrape.com/scroll"],
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".quote",
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 10,
+    "SCROLL_DELAY": 2.0,
+    "CONCURRENT_REQUESTS": 1,
+    "DOWNLOAD_DELAY": 0
+  },
+  "rules": [
+    {
+      "allow": [".*"],
+      "callback": "parse_article",
+      "follow": false
+    }
+  ]
+}
+```
+
+**Note:** Set `follow: false` to prevent following links during scroll.
+
+### Cloudflare + Playwright
+
+```json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "browser_only",
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article",
+    "CONCURRENT_REQUESTS": 2,
+    "DOWNLOAD_DELAY": 5
+  }
+}
+```
+
+## Debugging
+
+### Check Playwright Logs
+
+```bash
+scrapai crawl spider --limit 1 --project proj
+```
+
+Look for:
+```
+Starting Playwright fetch for https://...
+Will wait for selector: .article-content
+Will wait additional 2 seconds
+Browser navigated
+Got HTML from browser: 45678 bytes
+```
+
+### Test Wait Selector
+
+```bash
+# Inspect page
+scrapai inspect https://example.com/spa-page --project proj
+
+# Check if selector exists
+scrapai analyze page.html --test ".article-content"
+```
+
+If selector not found → Playwright will timeout (30s)
+
+### Common Issues
+
+**Timeout waiting for selector:**
+- Selector doesn't exist on page
+- Selector appears after 30s (increase timeout not supported - use delay instead)
+- JavaScript error prevents rendering
+
+**Solution:** Use generic selector or remove `PLAYWRIGHT_WAIT_SELECTOR`
+
+**Content still empty:**
+- Delay too short (increase `PLAYWRIGHT_DELAY`)
+- Selector correct but content loads separately
+- Page requires interaction (click, scroll) - use `INFINITE_SCROLL` if applicable
+
+## Browser Client
+
+Playwright uses `BrowserClient` from `utils/browser.py`:
+
+**Features:**
+- Headless Chrome
+- Async context manager
+- Wait for selector support
+- Infinite scroll support
+- Returns rendered HTML
+
+**Usage in extractors:**
+```python
+async with BrowserClient() as browser:
+    if await browser.goto(
+        url,
+        wait_for_selector,
+        additional_delay,
+        enable_scroll,
+        max_scrolls,
+        scroll_delay
+    ):
+        html = await browser.get_html()
+```
+
+## Related
+
+- [Extractors Overview](/api/extractors-overview) - Strategy selection
+- [Trafilatura Extractor](/api/trafilatura) - Recommended after Playwright
+- [Custom Extractors](/api/custom-extractors) - For structured JS content
+- [Settings](/api/settings) - All Playwright settings

@@ -1,0 +1,535 @@
+---
+title: "Data Commands"
+description: "View and export scraped items from database"
+---
+
+Data commands allow you to inspect scraped items from test crawls and export them to various formats (CSV, JSON, JSONL, Parquet).
+
+## show
+
+View scraped items from the database.
+
+### Syntax
+
+```bash
+./scrapai show <spider> --project <name> [options]
+```
+
+### Arguments
+
+<ParamField path="spider" type="string" required>
+  Spider name.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" required>
+  Project name.
+</ParamField>
+
+<ParamField path="--limit" type="integer" default="5">
+  Number of items to display.
+</ParamField>
+
+<ParamField path="--url" type="string">
+  Filter by URL pattern (case-insensitive substring match).
+</ParamField>
+
+<ParamField path="--title" type="string">
+  Search in titles only (case-insensitive).
+</ParamField>
+
+<ParamField path="--text" type="string">
+  Search in both title and content (case-insensitive).
+</ParamField>
+
+### Examples
+
+```bash
+# Show last 5 items
+./scrapai show bbc_co_uk --project news
+
+# Show last 10 items
+./scrapai show bbc_co_uk --project news --limit 10
+
+# Filter by URL pattern
+./scrapai show bbc_co_uk --project news --url "/technology/"
+
+# Search titles
+./scrapai show bbc_co_uk --project news --title "climate"
+
+# Search title and content
+./scrapai show bbc_co_uk --project news --text "election"
+```
+
+### Output
+
+#### Article Items (Generic Extractors)
+
+```bash
+$ ./scrapai show bbc_co_uk --project news --limit 3
+📰 Showing 3 articles from 'bbc_co_uk':
+
+🔸 [1] UK economy grows 0.4% in February
+   📅 Published: 2026-02-28 | Scraped: 2026-02-28 15:30
+   🔗 https://bbc.co.uk/news/business-123456
+   ✍️  By Economics Reporter
+   📝 The UK economy grew by 0.4% in February, official figures show, 
+        beating economists' expectations of 0.2% growth...
+
+🔸 [2] NASA announces Mars mission timeline
+   📅 Published: 2026-02-28 | Scraped: 2026-02-28 15:32
+   🔗 https://bbc.co.uk/news/science-789012
+   📝 NASA has unveiled an ambitious timeline for its first crewed mission 
+        to Mars, targeting a 2035 launch date...
+
+🔸 [3] New AI regulations announced
+   📅 Published: 2026-02-27 | Scraped: 2026-02-28 15:35
+   🔗 https://bbc.co.uk/news/technology-345678
+   ✍️  By Tech Correspondent
+   📝 The government has announced new regulations for artificial intelligence 
+        systems, focusing on transparency and accountability...
+```
+
+#### Callback Items (Custom Extractors)
+
+For spiders with custom callbacks:
+
+```bash
+$ ./scrapai show ecommerce_spider --project shop --limit 2
+📰 Showing 2 articles from 'ecommerce_spider':
+
+🔸 [1] parse_product item
+   📅 Scraped: 2026-02-28 16:10
+   🔗 https://shop.example.com/products/widget-pro-3000
+   • title: Widget Pro 3000
+   • price: $299.99
+   • rating: 4.5
+   • reviews_count: 1,247
+   • availability: In Stock
+
+🔸 [2] parse_product item
+   📅 Scraped: 2026-02-28 16:12
+   🔗 https://shop.example.com/products/gadget-ultra
+   • title: Gadget Ultra
+   • price: $149.99
+   • rating: 4.8
+   • reviews_count: 2,891
+   • availability: Low Stock
+```
+
+<Note>
+The `show` command dynamically displays fields based on the spider's callback configuration. Article items show standard fields (title, author, content), while custom callback items show only the fields defined in the spider config.
+</Note>
+
+### Filtering Examples
+
+#### URL Filter
+
+```bash
+$ ./scrapai show bbc_co_uk --project news --url "/technology/"
+📰 Showing 3 articles from 'bbc_co_uk':
+   (filtered by: URL contains '/technology/')
+
+🔸 [1] New AI regulations announced
+   🔗 https://bbc.co.uk/news/technology-345678
+   ...
+```
+
+#### Title Search
+
+```bash
+$ ./scrapai show bbc_co_uk --project news --title "climate"
+📰 Showing 2 articles from 'bbc_co_uk':
+   (filtered by: title contains 'climate')
+
+🔸 [1] Climate summit reaches historic agreement
+   ...
+
+🔸 [2] New climate data shows record warming
+   ...
+```
+
+#### Full-Text Search
+
+```bash
+$ ./scrapai show bbc_co_uk --project news --text "election"
+📰 Showing 4 articles from 'bbc_co_uk':
+   (filtered by: title or content contains 'election')
+```
+
+### No Results
+
+```bash
+$ ./scrapai show empty_spider --project test
+📬 No articles found for spider 'empty_spider'
+```
+
+## export
+
+Export scraped items to file formats.
+
+### Syntax
+
+```bash
+./scrapai export <spider> --project <name> --format <fmt> [options]
+```
+
+### Arguments
+
+<ParamField path="spider" type="string" required>
+  Spider name.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" required>
+  Project name.
+</ParamField>
+
+<ParamField path="--format" type="choice" required>
+  Export format: `csv`, `json`, `jsonl`, `parquet`.
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Custom output file path. If not specified, uses timestamped filename in `data/<project>/<spider>/exports/`.
+</ParamField>
+
+<ParamField path="--limit" type="integer">
+  Limit number of items to export.
+</ParamField>
+
+<ParamField path="--url" type="string">
+  Filter by URL pattern.
+</ParamField>
+
+<ParamField path="--title" type="string">
+  Filter by title.
+</ParamField>
+
+<ParamField path="--text" type="string">
+  Filter by title or content.
+</ParamField>
+
+### Examples
+
+```bash
+# Export to CSV (default location)
+./scrapai export bbc_co_uk --project news --format csv
+
+# Export to JSON with custom path
+./scrapai export bbc_co_uk --project news --format json --output my_data.json
+
+# Export to Parquet (requires pandas)
+./scrapai export bbc_co_uk --project news --format parquet
+
+# Export filtered items
+./scrapai export bbc_co_uk --project news --format jsonl --title "climate"
+
+# Export limited items
+./scrapai export bbc_co_uk --project news --format csv --limit 100
+```
+
+### Output
+
+```bash
+$ ./scrapai export bbc_co_uk --project news --format csv
+✅ Exported 247 articles to CSV: data/news/bbc_co_uk/exports/export_28022026_153042.csv
+```
+
+### Export Formats
+
+#### CSV
+
+Comma-separated values with header row:
+
+```csv
+id,url,title,content,author,published_date,scraped_at
+1,https://bbc.co.uk/news/business-123456,"UK economy grows 0.4%","The UK economy...","Economics Reporter",2026-02-28,2026-02-28T15:30:42
+2,https://bbc.co.uk/news/science-789012,"NASA announces Mars mission","NASA has unveiled...","",2026-02-28,2026-02-28T15:32:15
+```
+
+**Custom callback items** include their specific fields:
+
+```csv
+id,url,scraped_at,callback,title,price,rating,reviews_count,availability
+1,https://shop.com/product-1,2026-02-28T16:10:30,parse_product,"Widget Pro 3000",299.99,4.5,1247,"In Stock"
+```
+
+#### JSON
+
+Pretty-printed JSON array:
+
+```json
+[
+  {
+    "id": 1,
+    "url": "https://bbc.co.uk/news/business-123456",
+    "title": "UK economy grows 0.4%",
+    "content": "The UK economy...",
+    "author": "Economics Reporter",
+    "published_date": "2026-02-28",
+    "scraped_at": "2026-02-28T15:30:42"
+  },
+  {
+    "id": 2,
+    "url": "https://bbc.co.uk/news/science-789012",
+    "title": "NASA announces Mars mission",
+    "content": "NASA has unveiled...",
+    "author": null,
+    "published_date": "2026-02-28",
+    "scraped_at": "2026-02-28T15:32:15"
+  }
+]
+```
+
+#### JSONL (JSON Lines)
+
+One JSON object per line:
+
+```jsonl
+{"id": 1, "url": "https://bbc.co.uk/news/business-123456", "title": "UK economy grows 0.4%", "scraped_at": "2026-02-28T15:30:42"}
+{"id": 2, "url": "https://bbc.co.uk/news/science-789012", "title": "NASA announces Mars mission", "scraped_at": "2026-02-28T15:32:15"}
+```
+
+Ideal for streaming, large datasets, and line-by-line processing.
+
+#### Parquet
+
+Columnar storage format (requires `pandas` and `pyarrow`):
+
+```bash
+./scrapai export bbc_co_uk --project news --format parquet
+```
+
+If dependencies are missing:
+
+```bash
+❌ Parquet export requires pandas and pyarrow libraries.
+   Run: pip install pandas pyarrow
+```
+
+Install in virtual environment:
+
+```bash
+.venv/bin/pip install pandas pyarrow
+```
+
+<Tip>
+Parquet is ideal for analytics and data science workflows. It provides excellent compression and fast columnar queries.
+</Tip>
+
+### Field Mapping
+
+#### Article Items (Generic Extractors)
+
+Fields exported:
+- `id`: Database row ID
+- `url`: Article URL
+- `title`: Article title
+- `content`: Full article text
+- `author`: Article author (if available)
+- `published_date`: Publication date (ISO format)
+- `scraped_at`: Timestamp when scraped
+- `metadata`: Additional metadata (if present)
+
+#### Callback Items (Custom Extractors)
+
+Fields exported:
+- `id`: Database row ID
+- `url`: Page URL
+- `scraped_at`: Timestamp
+- `callback`: Callback name (e.g., `parse_product`)
+- **Custom fields**: All fields defined in spider's callback config
+
+The export automatically adapts to the spider's callback configuration, exporting only the fields that were actually extracted.
+
+### Default File Locations
+
+When `--output` is not specified:
+
+```
+data/<project>/<spider>/exports/export_<timestamp>.<format>
+```
+
+Examples:
+- `data/news/bbc_co_uk/exports/export_28022026_153042.csv`
+- `data/shop/products_spider/exports/export_28022026_161530.json`
+
+### Filtering and Limiting
+
+All filters from `show` command work with `export`:
+
+```bash
+# Export only technology articles
+./scrapai export bbc_co_uk --project news --format csv --url "/technology/"
+
+# Export articles matching search term
+./scrapai export bbc_co_uk --project news --format json --text "climate"
+
+# Export first 1000 items only
+./scrapai export bbc_co_uk --project news --format jsonl --limit 1000
+```
+
+## Database Storage
+
+### `scraped_items` Table
+
+Items are stored in this table during test crawls:
+
+```sql
+CREATE TABLE scraped_items (
+    id INTEGER PRIMARY KEY,
+    spider_id INTEGER NOT NULL,
+    url VARCHAR(2048) NOT NULL,
+    title TEXT,
+    content TEXT,
+    author VARCHAR(255),
+    published_date TIMESTAMP,
+    scraped_at TIMESTAMP NOT NULL,
+    metadata_json JSON,
+    FOREIGN KEY (spider_id) REFERENCES spiders(id) ON DELETE CASCADE
+);
+```
+
+### Standard vs. Custom Fields
+
+**Standard fields** (from newspaper/trafilatura extractors):
+- Stored in dedicated columns: `title`, `content`, `author`, `published_date`
+
+**Custom fields** (from callback extractors):
+- Stored in `metadata_json` column as JSON
+- Includes `_callback` key to identify which callback was used
+
+Example `metadata_json` for product:
+
+```json
+{
+  "_callback": "parse_product",
+  "price": "299.99",
+  "rating": 4.5,
+  "reviews_count": 1247,
+  "availability": "In Stock"
+}
+```
+
+## Data Retention
+
+### Test Crawls
+
+Data remains in database indefinitely until:
+- Spider is deleted (cascading delete removes all items)
+- Manual database cleanup
+
+### Production Crawls
+
+Data is exported to JSONL files, not stored in database:
+- Files kept indefinitely in `data/<project>/<spider>/crawls/`
+- Manual cleanup required
+- Includes full HTML content (larger files)
+
+## Use Cases
+
+### Quick Verification
+
+After a test crawl:
+
+```bash
+./scrapai crawl myspider --project myproject --limit 5
+./scrapai show myspider --project myproject
+```
+
+### Data Analysis
+
+Export to CSV for spreadsheet analysis:
+
+```bash
+./scrapai export myspider --project myproject --format csv
+# Open in Excel, Google Sheets, etc.
+```
+
+### Machine Learning
+
+Export to Parquet for pandas/scikit-learn:
+
+```bash
+./scrapai export myspider --project myproject --format parquet
+```
+
+```python
+import pandas as pd
+df = pd.read_parquet('export.parquet')
+print(df.head())
+```
+
+### API Integration
+
+Export to JSONL for streaming processing:
+
+```bash
+./scrapai export myspider --project myproject --format jsonl
+```
+
+```bash
+while IFS= read -r line; do
+  curl -X POST api.example.com/ingest -d "$line"
+done < export.jsonl
+```
+
+## Troubleshooting
+
+### Spider Not Found
+
+```bash
+❌ Spider 'myspider' not found in project 'myproject'
+```
+
+**Solution:** Check project name and spider name:
+
+```bash
+./scrapai spiders list --project myproject
+```
+
+### No Items Found
+
+```bash
+📬 No articles found for spider 'myspider'
+```
+
+**Possible causes:**
+- Test crawl hasn't been run yet
+- Crawl was run in production mode (data in JSONL files, not database)
+- Filters are too restrictive
+
+**Solution:** Run a test crawl:
+
+```bash
+./scrapai crawl myspider --project myproject --limit 10
+./scrapai show myspider --project myproject
+```
+
+### Parquet Dependencies Missing
+
+```bash
+❌ Parquet export requires pandas and pyarrow libraries.
+```
+
+**Solution:**
+
+```bash
+.venv/bin/pip install pandas pyarrow
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Database Commands" icon="server" href="/cli/database">
+  Advanced queries and database management
+</Card>
+
+<Card title="Inspection" icon="magnifying-glass" href="/cli/inspect">
+  Analyze websites before scraping
+</Card>
+
+</CardGroup>

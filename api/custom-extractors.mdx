@@ -1,0 +1,368 @@
+---
+title: Custom CSS Extractors
+description: Site-specific extraction using CSS selectors
+---
+
+Custom CSS extractors allow you to define precise selectors for extracting content from sites with unique structures. Use when generic extractors (newspaper, trafilatura) fail.
+
+## When to Use
+
+<Check>Generic extractors fail or extract wrong content</Check>
+<Check>Site has unique/non-semantic HTML structure</Check>
+<Check>Need to extract custom fields (price, rating, category)</Check>
+<Check>E-commerce, job boards, real estate, forums</Check>
+
+<Warning>Requires manual selector discovery and testing</Warning>
+<Warning>Site changes may break selectors</Warning>
+
+## Configuration
+
+### For Article Content
+
+Use `CUSTOM_SELECTORS` in settings:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom", "newspaper", "trafilatura"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.article-title",
+      "content": "div.article-body",
+      "author": "span.author-name",
+      "date": "time.published-date",
+      "category": "a.category-link",
+      "tags": "div.tags a"
+    }
+  }
+}
+```
+
+### For Structured Data
+
+Use callbacks for non-article content:
+
+```json
+{
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {"css": "h1.product-name::text"},
+        "price": {"css": "span.price::text"},
+        "rating": {"css": "span.rating::attr(data-rating)"}
+      }
+    }
+  }
+}
+```
+
+See [Callbacks](/api/callbacks) for full schema.
+
+## CSS Selector Syntax
+
+### Basic Selectors
+
+```json
+// Element
+"css": "h1"
+
+// Class
+"css": "h1.article-title"
+
+// ID
+"css": "#main-title"
+
+// Multiple classes
+"css": "div.article.featured"
+
+// Descendant
+"css": "article div.content"
+
+// Direct child
+"css": "article > div.content"
+```
+
+### Extract Text
+
+```json
+// Text content
+"css": "h1::text"
+
+// All text (including nested elements)
+"css": "div.content::text"
+```
+
+### Extract Attributes
+
+```json
+// Image src
+"css": "img.main-image::attr(src)"
+
+// Link href
+"css": "a.external::attr(href)"
+
+// Data attribute
+"css": "span.rating::attr(data-rating)"
+
+// Class name
+"css": "div::attr(class)"
+```
+
+### Multiple Matches
+
+```json
+{
+  "css": "li.feature::text",
+  "get_all": true
+}
+```
+
+Returns list: `["WiFi", "Bluetooth", "GPS"]`
+
+## Standard vs Custom Fields
+
+### Standard Fields (Database Columns)
+
+Map directly to `scraped_items` table:
+
+- `title` → scraped_items.title
+- `content` → scraped_items.content
+- `author` → scraped_items.author
+- `date` → scraped_items.published_date
+
+### Custom Fields (Metadata JSON)
+
+Any other field names stored in `metadata_json`:
+
+- `price`, `rating`, `category`, `brand`, etc.
+- Displayed in `show` command
+- Flattened in exports
+
+## Selector Discovery Workflow
+
+### Step 1: Inspect Page
+
+```bash
+scrapai inspect https://example.com/article --project proj
+```
+
+Saves HTML to `data/proj/spider/analysis/page.html`
+
+### Step 2: Analyze Structure
+
+```bash
+scrapai analyze data/proj/spider/analysis/page.html
+```
+
+Shows:
+- h1/h2 elements with classes
+- Content containers by size
+- Date elements
+- Author elements
+
+### Step 3: Test Selectors
+
+```bash
+scrapai analyze page.html --test "h1.article-title"
+scrapai analyze page.html --test "div.article-body"
+```
+
+Verifies selector matches correct element.
+
+### Step 4: Search for Fields
+
+```bash
+scrapai analyze page.html --find "price"
+scrapai analyze page.html --find "rating"
+```
+
+Finds elements containing text.
+
+### Step 5: Test on Multiple Pages
+
+```bash
+# Import spider with selectors
+scrapai import spider.json --project proj
+
+# Test on 5 pages
+scrapai crawl spider --limit 5 --project proj
+
+# Verify results
+scrapai show spider 1 --project proj
+scrapai show spider 2 --project proj
+```
+
+## Selector Best Practices
+
+<Check>Target main content element (not navigation/sidebar/footer)</Check>
+<Check>Selector should match ONE element per page</Check>
+<Check>Prefer specific classes (`.article-title`) over generic (`.title`)</Check>
+<Check>Test on multiple pages to verify consistency</Check>
+<Check>Prefer semantic tags (`<article>`, `<time>`, `<h1>`)</Check>
+<Check>Content selector should return >500 chars; title >10 chars</Check>
+
+<Warning>Avoid dynamic/random class names (e.g., `class="css-abc123"`)</Warning>
+<Warning>Don't guess - always test on actual HTML</Warning>
+<Warning>Avoid overly generic selectors like `div.text`</Warning>
+
+## Examples
+
+### News Article
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.article-title",
+      "content": "div.article-body",
+      "author": "span.author-name",
+      "date": "time.published-date",
+      "category": "a.category-link",
+      "tags": "div.tags a"
+    }
+  }
+}
+```
+
+**Storage:**
+- `title`, `content`, `author`, `date` → database columns
+- `category`, `tags` → `metadata_json`
+
+### E-commerce Product
+
+```json
+{
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {
+          "css": "h1.product-name::text",
+          "processors": [{"type": "strip"}]
+        },
+        "price": {
+          "css": "span.price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "rating": {
+          "css": "span.rating::attr(data-rating)",
+          "processors": [{"type": "cast", "to": "float"}]
+        },
+        "features": {
+          "css": "li.feature::text",
+          "get_all": true
+        },
+        "images": {
+          "css": "img.product-image::attr(src)",
+          "get_all": true
+        }
+      }
+    }
+  }
+}
+```
+
+### Forum Thread
+
+```json
+{
+  "callbacks": {
+    "parse_thread": {
+      "extract": {
+        "title": {"css": "h1.thread-title::text"},
+        "author": {"css": "span.username::text"},
+        "content": {"css": "div.post-content"},
+        "date": {"css": "time.post-date::attr(datetime)"},
+        "upvotes": {
+          "css": "span.vote-count::text",
+          "processors": [{"type": "cast", "to": "int"}]
+        }
+      }
+    }
+  }
+}
+```
+
+## Validation
+
+Custom extractor validates:
+
+**Title:**
+- Must exist
+- Min length: 5 characters
+
+**Content:**
+- Must exist
+- Min length: 100 characters
+
+**If validation fails:** Returns `None`, next extractor is tried (if configured)
+
+## Fallback Strategy
+
+Recommended: Use custom with fallback to generic
+
+```json
+"EXTRACTOR_ORDER": ["custom", "newspaper", "trafilatura"]
+```
+
+**Behavior:**
+1. Try custom selectors (highest accuracy when configured)
+2. If selectors fail (e.g., site updated) → try newspaper
+3. If newspaper fails → try trafilatura
+
+## Debugging
+
+**Selector returns None:**
+
+```bash
+# Test selector
+scrapai analyze page.html --test "h1.wrong-class"
+```
+
+Check:
+- Selector matches element?
+- Element has text content?
+- Class name spelled correctly?
+
+**Content too short:**
+
+```bash
+scrapai analyze page.html --test "div.article-body"
+```
+
+Check:
+- Selector targets main content (not sidebar)?
+- Returns >100 characters?
+
+**Extraction succeeded but wrong content:**
+
+- Selector too generic (matches multiple elements, uses first)
+- Test on multiple pages to verify consistency
+
+## Performance
+
+**Speed:** Fast (BeautifulSoup parsing)
+
+**Recommended concurrency:**
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom"],
+    "CONCURRENT_REQUESTS": 16,
+    "DOWNLOAD_DELAY": 1
+  }
+}
+```
+
+## Related
+
+- [Callbacks](/api/callbacks) - Complete callback schema with processors
+- [Extractors Overview](/api/extractors-overview) - Strategy selection
+- [Newspaper Extractor](/api/newspaper) - Generic news extractor
+- [Trafilatura Extractor](/api/trafilatura) - Generic content extractor
+- [Settings](/api/settings) - Configuration options

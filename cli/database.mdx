@@ -1,0 +1,662 @@
+---
+title: "Database Commands"
+description: "Migrations, queries, statistics, and data transfer"
+---
+
+Database commands provide direct access to the ScrapAI database for migrations, queries, statistics, and transferring data between databases.
+
+## db migrate
+
+Run Alembic database migrations.
+
+### Syntax
+
+```bash
+./scrapai db migrate
+```
+
+### What It Does
+
+Runs all pending Alembic migrations to bring the database schema up to date with the latest version.
+
+### Output
+
+```bash
+$ ./scrapai db migrate
+🔄 Running database migrations...
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade -> a1b2c3d4e5f6, add callbacks_config
+INFO  [alembic.runtime.migration] Running upgrade a1b2c3d4e5f6 -> b2c3d4e5f6g7, add queue table
+✅ Migrations completed successfully!
+```
+
+### Use Cases
+
+- **After git pull**: Apply new schema changes
+- **After ScrapAI upgrade**: Update to new database structure
+- **Initial setup**: Run by `./scrapai setup` automatically
+
+## db current
+
+Show current migration revision.
+
+### Syntax
+
+```bash
+./scrapai db current
+```
+
+### Output
+
+```bash
+$ ./scrapai db current
+b2c3d4e5f6g7 (head)
+```
+
+Shows the current Alembic revision ID. `(head)` indicates you're on the latest version.
+
+## db stats
+
+Show database statistics.
+
+### Syntax
+
+```bash
+./scrapai db stats
+```
+
+### Output
+
+```bash
+$ ./scrapai db stats
+📊 Database Statistics
+
+   Spiders: 23
+   Scraped Items: 45,891
+   Projects: 5
+
+   Queue Items: 127
+      • Pending: 89
+      • Processing: 3
+      • Completed: 31
+      • Failed: 4
+```
+
+### Use Cases
+
+- Monitor database growth
+- Check queue status at a glance
+- Verify data after imports/migrations
+
+## db tables
+
+List all tables with row counts.
+
+### Syntax
+
+```bash
+./scrapai db tables
+```
+
+### Output
+
+```bash
+$ ./scrapai db tables
+📋 Database Tables
+
+   alembic_version        1 rows
+   crawl_queue            127 rows
+   scraped_items          45,891 rows
+   spider_rules           67 rows
+   spider_settings        152 rows
+   spiders                23 rows
+```
+
+### Table Validation
+
+Only ScrapAI tables are displayed. System tables and non-ScrapAI tables are skipped:
+
+```bash
+   sqlite_sequence        (skipped: not a ScrapAI table)
+   my_custom_table        (skipped: not a ScrapAI table)
+```
+
+<Note>
+Table validation prevents SQL injection by using a whitelist of known ScrapAI table names.
+</Note>
+
+## db inspect
+
+Show schema for a specific table.
+
+### Syntax
+
+```bash
+./scrapai db inspect <table>
+```
+
+### Arguments
+
+<ParamField path="table" type="string" required>
+  Table name. Must be one of: `spiders`, `scraped_items`, `crawl_queue`, `spider_rules`, `spider_settings`, `alembic_version`.
+</ParamField>
+
+### Examples
+
+```bash
+./scrapai db inspect spiders
+./scrapai db inspect scraped_items
+./scrapai db inspect crawl_queue
+```
+
+### Output (SQLite)
+
+```bash
+$ ./scrapai db inspect spiders
+🔍 Table: spiders
+
+Column                Type                 Nullable  Default
+----------------------------------------------------------------------
+id                    INTEGER              NO        
+name                  VARCHAR(255)         NO        
+allowed_domains       JSON                 YES       
+start_urls            JSON                 YES       
+source_url            VARCHAR(2048)        YES       
+active                BOOLEAN              NO        1
+project               VARCHAR(255)         YES       
+callbacks_config      JSON                 YES       
+created_at            TIMESTAMP            YES       CURRENT_TIMESTAMP
+updated_at            TIMESTAMP            YES       CURRENT_TIMESTAMP
+
+Total rows: 23
+```
+
+### Output (PostgreSQL)
+
+PostgreSQL provides more detailed type information:
+
+```bash
+$ ./scrapai db inspect spiders
+🔍 Table: spiders
+
+Column                Type                 Nullable  Default
+----------------------------------------------------------------------
+id                    integer              NO        nextval('spiders_id_seq')
+name                  character varying(255) NO      
+allowed_domains       jsonb                YES       
+start_urls            jsonb                YES       
+source_url            character varying(2048) YES   
+active                boolean              NO        true
+project               character varying(255) YES    
+callbacks_config      jsonb                YES       
+created_at            timestamp            YES       now()
+updated_at            timestamp            YES       now()
+
+Total rows: 23
+```
+
+### Invalid Table
+
+```bash
+$ ./scrapai db inspect my_table
+❌ Invalid table name: 'my_table'
+Valid tables: alembic_version, crawl_queue, scraped_items, spider_rules, spider_settings, spiders
+```
+
+## db query
+
+Execute SQL queries against the database.
+
+### Syntax
+
+```bash
+./scrapai db query "<sql>" [options]
+```
+
+### Arguments
+
+<ParamField path="sql" type="string" required>
+  SQL query to execute. Only SELECT, UPDATE, and DELETE are allowed.
+</ParamField>
+
+### Options
+
+<ParamField path="--format" type="choice" default="table">
+  Output format: `table`, `json`, `csv`.
+</ParamField>
+
+<ParamField path="--yes" type="flag">
+  Skip confirmation prompt for UPDATE/DELETE.
+</ParamField>
+
+### SELECT Queries
+
+```bash
+# Table format (default)
+./scrapai db query "SELECT * FROM spiders LIMIT 5"
+
+# JSON format
+./scrapai db query "SELECT * FROM spiders LIMIT 5" --format json
+
+# CSV format
+./scrapai db query "SELECT * FROM spiders LIMIT 5" --format csv
+```
+
+#### Output (Table Format)
+
+```bash
+$ ./scrapai db query "SELECT name, project, active FROM spiders LIMIT 3"
+
+name          | project | active
+------------------------------------
+bbc_co_uk     | news    | True
+cnn_com       | news    | True
+reuters_com   | news    | True
+
+(3 rows)
+```
+
+#### Output (JSON Format)
+
+```bash
+$ ./scrapai db query "SELECT * FROM spiders LIMIT 2" --format json
+[
+  {
+    "id": 1,
+    "name": "bbc_co_uk",
+    "allowed_domains": ["bbc.co.uk"],
+    "start_urls": ["https://www.bbc.co.uk/news"],
+    "source_url": "https://bbc.co.uk",
+    "active": true,
+    "project": "news",
+    "created_at": "2026-02-28T14:30:00"
+  },
+  {
+    "id": 2,
+    "name": "cnn_com",
+    "allowed_domains": ["cnn.com"],
+    "start_urls": ["https://www.cnn.com"],
+    "source_url": "https://cnn.com",
+    "active": true,
+    "project": "news",
+    "created_at": "2026-02-27T09:15:00"
+  }
+]
+```
+
+#### Output (CSV Format)
+
+```bash
+$ ./scrapai db query "SELECT name, project FROM spiders LIMIT 3" --format csv
+name,project
+bbc_co_uk,news
+cnn_com,news
+reuters_com,news
+```
+
+### UPDATE Queries
+
+Update rows with confirmation:
+
+```bash
+./scrapai db query "UPDATE spider_settings SET value='3' WHERE key='DOWNLOAD_DELAY'"
+```
+
+#### Output
+
+```bash
+⚠️  This will UPDATE 8 row(s). Continue? [y/N] y
+✅ UPDATE complete — 8 row(s) affected
+```
+
+#### Skip Confirmation
+
+```bash
+./scrapai db query "UPDATE spiders SET active=false WHERE project='archive'" --yes
+✅ UPDATE complete — 12 row(s) affected
+```
+
+### DELETE Queries
+
+Delete rows with confirmation:
+
+```bash
+./scrapai db query "DELETE FROM scraped_items WHERE spider_id = 5"
+```
+
+#### Output
+
+```bash
+⚠️  This will DELETE 1247 row(s). Continue? [y/N] y
+✅ DELETE complete — 1247 row(s) affected
+```
+
+<Warning>
+DELETE operations cannot be undone. Always verify the row count before confirming.
+</Warning>
+
+### Blocked Operations
+
+INSERT, DROP, ALTER, and TRUNCATE are blocked for safety:
+
+```bash
+$ ./scrapai db query "DROP TABLE spiders"
+❌ Only SELECT, UPDATE, and DELETE queries are allowed
+   INSERT, DROP, ALTER, and TRUNCATE are blocked for safety
+```
+
+### Complex Queries
+
+Joins, aggregations, and subqueries are supported:
+
+```bash
+# Count items per spider
+./scrapai db query "
+SELECT s.name, COUNT(si.id) as item_count 
+FROM spiders s 
+LEFT JOIN scraped_items si ON s.id = si.spider_id 
+GROUP BY s.name 
+ORDER BY item_count DESC
+"
+
+# Find spiders with no items
+./scrapai db query "
+SELECT name FROM spiders 
+WHERE id NOT IN (SELECT DISTINCT spider_id FROM scraped_items)
+"
+
+# Queue statistics by project
+./scrapai db query "
+SELECT project_name, status, COUNT(*) as count 
+FROM crawl_queue 
+GROUP BY project_name, status 
+ORDER BY project_name, status
+"
+```
+
+## db transfer
+
+Transfer data from another database into the current one.
+
+### Syntax
+
+```bash
+./scrapai db transfer <source_url> [--skip-items]
+```
+
+### Arguments
+
+<ParamField path="source_url" type="string" required>
+  Source database connection string (the old database to copy FROM).
+</ParamField>
+
+### Options
+
+<ParamField path="--skip-items" type="flag">
+  Skip scraped_items table (transfer only spiders and queue).
+</ParamField>
+
+### Workflow
+
+1. Update `DATABASE_URL` in `.env` to your **new** database
+2. Run migrations on new database: `./scrapai db migrate`
+3. Transfer data from old database: `./scrapai db transfer <old_db_url>`
+
+### Examples
+
+#### SQLite to PostgreSQL
+
+```bash
+# 1. Update .env
+DATABASE_URL=postgresql://user:pass@localhost:5432/scrapai
+
+# 2. Run migrations
+./scrapai db migrate
+
+# 3. Transfer from SQLite
+./scrapai db transfer sqlite:///scrapai.db
+```
+
+#### PostgreSQL to PostgreSQL
+
+```bash
+# 1. Update .env to new database
+DATABASE_URL=postgresql://user:pass@new-host:5432/scrapai
+
+# 2. Run migrations
+./scrapai db migrate
+
+# 3. Transfer from old database
+./scrapai db transfer postgresql://user:pass@old-host:5432/scrapai
+```
+
+#### Skip Scraped Items
+
+For large databases, skip scraped items (fastest transfer):
+
+```bash
+./scrapai db transfer sqlite:///scrapai.db --skip-items
+```
+
+### Output
+
+```bash
+$ ./scrapai db transfer sqlite:///old_scrapai.db
+📦 Source (old): sqlite:///old_scrapai.db
+📦 Target (current): postgresql://localhost:5432/scrapai
+
+🕷️  Transferring 23 spiders...
+   ✅ 23 spiders (with rules and settings)
+
+📰 Transferring 45,891 scraped items...
+   ... 10,000/45,891
+   ... 20,000/45,891
+   ... 30,000/45,891
+   ... 40,000/45,891
+   ✅ 45,891 items
+
+📋 Transferring 127 queue items...
+   ✅ 127 queue items
+
+🎉 Transfer complete! Your new database is ready.
+```
+
+### What Gets Transferred
+
+- **Spiders**: All spider configurations
+- **Spider Rules**: URL matching rules
+- **Spider Settings**: Custom settings
+- **Scraped Items**: All scraped data (unless `--skip-items`)
+- **Queue**: All queue items with status
+
+### ID Remapping
+
+Foreign key relationships are preserved:
+- New spider IDs are assigned in target database
+- Scraped items and settings are updated with new spider IDs
+- No data loss or relationship corruption
+
+### Error Handling
+
+```bash
+$ ./scrapai db transfer postgresql://localhost:5432/scrapai
+❌ Source is the same as current database.
+   Update DATABASE_URL in .env to your new database first.
+```
+
+```bash
+$ ./scrapai db transfer postgresql://bad-host:5432/db
+❌ Transfer failed: connection to server at "bad-host" failed
+```
+
+All operations are transactional - if transfer fails, target database is rolled back.
+
+## Safety Features
+
+### SQL Injection Prevention
+
+- **Table names**: Validated against whitelist
+- **Query parameters**: All queries use SQLAlchemy parameterized bindings
+- **Blocked operations**: INSERT, DROP, ALTER, TRUNCATE not allowed via `db query`
+
+### Confirmation Prompts
+
+Destructive operations require confirmation:
+- UPDATE queries show affected row count
+- DELETE queries show affected row count
+- Use `--yes` flag to skip prompts (automation)
+
+### Read-Only by Default
+
+SELECT queries execute immediately. Write operations (UPDATE/DELETE) require explicit confirmation.
+
+## PostgreSQL vs SQLite
+
+### PostgreSQL Benefits
+
+- **Atomic queue operations**: `FOR UPDATE SKIP LOCKED` for race-free parallel processing
+- **Better performance**: Faster for large datasets (100k+ items)
+- **Concurrent writes**: Multiple workers can write simultaneously
+- **JSON queries**: Advanced JSONB operators for querying spider configs
+
+### SQLite Benefits
+
+- **Zero configuration**: No server setup required
+- **Single file**: Easy to backup and copy
+- **Sufficient for most use cases**: Works well for fewer than 100k items
+
+### Switching Databases
+
+```bash
+# In .env
+DATABASE_URL=postgresql://user:password@localhost:5432/scrapai
+
+# Run migrations
+./scrapai db migrate
+
+# Transfer from SQLite
+./scrapai db transfer sqlite:///scrapai.db
+```
+
+## Example Queries
+
+### Spider Analytics
+
+```bash
+# Spiders by item count
+./scrapai db query "
+SELECT s.name, s.project, COUNT(si.id) as items
+FROM spiders s
+LEFT JOIN scraped_items si ON s.id = si.spider_id
+GROUP BY s.name, s.project
+ORDER BY items DESC
+" --format table
+
+# Recent spiders
+./scrapai db query "
+SELECT name, project, created_at 
+FROM spiders 
+ORDER BY created_at DESC 
+LIMIT 10
+"
+```
+
+### Queue Analytics
+
+```bash
+# Queue status summary
+./scrapai db query "
+SELECT status, COUNT(*) as count 
+FROM crawl_queue 
+GROUP BY status
+"
+
+# Failed items with errors
+./scrapai db query "
+SELECT website_url, error_message, updated_at 
+FROM crawl_queue 
+WHERE status='failed' 
+ORDER BY updated_at DESC
+" --format json
+```
+
+### Scraped Items
+
+```bash
+# Items by date
+./scrapai db query "
+SELECT DATE(scraped_at) as date, COUNT(*) as count 
+FROM scraped_items 
+GROUP BY DATE(scraped_at) 
+ORDER BY date DESC 
+LIMIT 7
+"
+
+# Search content
+./scrapai db query "
+SELECT title, url 
+FROM scraped_items 
+WHERE content LIKE '%climate change%' 
+LIMIT 10
+"
+```
+
+## Troubleshooting
+
+### Migration Failed
+
+```bash
+❌ Migration failed!
+```
+
+**Check:**
+- Database connection: `DATABASE_URL` in `.env`
+- Database permissions: Write access required
+- Disk space: Ensure sufficient space
+
+**Solution:**
+
+```bash
+# Test connection (PostgreSQL)
+psql $DATABASE_URL -c "SELECT 1"
+
+# Test connection (SQLite)
+ls -la scrapai.db
+```
+
+### Query Timeout
+
+For very large queries:
+
+```bash
+# Add LIMIT clause
+./scrapai db query "SELECT * FROM scraped_items LIMIT 1000"
+
+# Or use export command
+./scrapai export myspider --project myproject --format csv
+```
+
+### Transfer Failed
+
+If transfer is interrupted:
+
+```bash
+# Target database is rolled back (safe)
+# Fix the issue and retry
+./scrapai db transfer <source_url>
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Data Commands" icon="eye" href="/cli/data">
+  View and export scraped items
+</Card>
+
+<Card title="Queue Management" icon="list" href="/cli/queue">
+  Manage batch processing queue
+</Card>
+
+</CardGroup>

@@ -1,0 +1,344 @@
+---
+title: "Spider Management"
+description: "Import, list, and delete spider configurations"
+---
+
+Spider management commands handle JSON configurations stored in the database. Spiders are imported from JSON files and can be updated by re-importing.
+
+## spiders list
+
+List all spiders in the database.
+
+### Syntax
+
+```bash
+./scrapai spiders list [--project <name>]
+```
+
+### Options
+
+<ParamField path="--project" type="string">
+  Filter by project name. If omitted, shows spiders from all projects.
+</ParamField>
+
+### Examples
+
+```bash
+# List all spiders across all projects
+./scrapai spiders list
+
+# List spiders in specific project
+./scrapai spiders list --project news
+```
+
+### Output
+
+```bash
+$ ./scrapai spiders list --project news
+📋 Available Spiders (DB) - Project: news:
+  • bbc_co_uk [news] (Active: True) - Created: 2026-02-28 14:30, Updated: 2026-02-28 15:45
+    Source: https://bbc.co.uk
+  • cnn_com [news] (Active: True) - Created: 2026-02-27 09:15, Updated: 2026-02-27 09:15
+    Source: https://cnn.com
+  • reuters_com [news] (Active: True) - Created: 2026-02-26 16:20, Updated: 2026-02-28 11:30
+    Source: https://reuters.com
+```
+
+### Fields Displayed
+
+- **Name**: Spider identifier (used in `crawl` and `show` commands)
+- **Project**: Project tag in brackets
+- **Active**: Whether spider is enabled (currently always `True`)
+- **Created**: Initial import timestamp
+- **Updated**: Last modification timestamp
+- **Source**: Original website URL (if specified in config)
+
+## spiders import
+
+Import or update a spider from a JSON configuration file.
+
+### Syntax
+
+```bash
+./scrapai spiders import <file> --project <name> [--skip-validation]
+```
+
+### Arguments
+
+<ParamField path="file" type="string" required>
+  Path to JSON spider configuration file. Use `-` to read from stdin.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name to associate with this spider.
+</ParamField>
+
+<ParamField path="--skip-validation" type="flag">
+  Skip Pydantic schema validation (not recommended). Use only for backward compatibility.
+</ParamField>
+
+### Examples
+
+```bash
+# Import spider from file
+./scrapai spiders import bbc_spider.json --project news
+
+# Import from stdin (useful in pipelines)
+cat spider.json | ./scrapai spiders import - --project news
+
+# Skip validation (backward compatibility)
+./scrapai spiders import old_spider.json --project legacy --skip-validation
+```
+
+### Spider Configuration Format
+
+```json
+{
+  "name": "bbc_co_uk",
+  "allowed_domains": ["bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/news"],
+  "source_url": "https://bbc.co.uk",
+  "rules": [
+    {
+      "allow": ["/news/articles/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false,
+      "priority": 10
+    },
+    {
+      "allow": ["/news/?$"],
+      "follow": true,
+      "priority": 5
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 2,
+    "CONCURRENT_REQUESTS": 8
+  },
+  "callbacks": {
+    "parse_article": {
+      "extract": {
+        "title": {"css": "h1.article-headline::text"},
+        "author": {"css": "span.author-name::text"},
+        "content": {"css": "div.article-body", "get": "all_text"}
+      }
+    }
+  }
+}
+```
+
+### Configuration Fields
+
+<ParamField path="name" type="string" required>
+  Spider name (letters, numbers, hyphens, underscores only). Must be unique per project.
+</ParamField>
+
+<ParamField path="allowed_domains" type="array" required>
+  List of domains this spider can crawl. URLs outside these domains are filtered.
+</ParamField>
+
+<ParamField path="start_urls" type="array" required>
+  Initial URLs to crawl. Must be valid HTTP/HTTPS URLs.
+</ParamField>
+
+<ParamField path="source_url" type="string">
+  Original website URL (for documentation purposes).
+</ParamField>
+
+<ParamField path="rules" type="array">
+  URL pattern matching rules. Each rule defines which URLs to follow and how to process them.
+</ParamField>
+
+<ParamField path="settings" type="object">
+  Spider-specific settings that override defaults.
+</ParamField>
+
+<ParamField path="callbacks" type="object">
+  Custom extraction callbacks with CSS/XPath selectors for non-article content.
+</ParamField>
+
+### Validation
+
+All spider configs are validated through Pydantic schemas before import:
+
+- **Spider names**: `^[a-zA-Z0-9_-]+$` pattern
+- **URLs**: HTTP/HTTPS only, no private IPs (127.0.0.1, 10.x, 172.16.x, 192.168.x), max 2048 chars
+- **Callback names**: Whitelisted names only, reserved names blocked
+- **Settings**: Bounded values (concurrency 1-32, delays 0-60s)
+- **Extractor order**: Valid extractor names only
+
+### Output
+
+#### Successful Import
+
+```bash
+$ ./scrapai spiders import bbc_spider.json --project news
+✅ Spider 'bbc_co_uk' imported successfully!
+   Project: news
+   Domains: bbc.co.uk
+   Start URLs: 1
+   Rules: 2
+   Callbacks: 1 (parse_article)
+```
+
+#### Update Existing Spider
+
+```bash
+$ ./scrapai spiders import bbc_spider.json --project news
+⚠️  Spider 'bbc_co_uk' already exists. Updating...
+✅ Spider 'bbc_co_uk' imported successfully!
+   Project: news
+   Domains: bbc.co.uk
+   Start URLs: 1
+   Rules: 2
+   Callbacks: 1 (parse_article)
+```
+
+<Note>
+Re-importing a spider **replaces** its configuration entirely. All rules and settings are deleted and recreated.
+</Note>
+
+#### Validation Failure
+
+```bash
+$ ./scrapai spiders import bad_spider.json --project news
+❌ Spider configuration validation failed:
+   • name: string does not match pattern "^[a-zA-Z0-9_-]+$"
+   • start_urls -> 0: URL scheme must be http or https
+   • settings -> CONCURRENT_REQUESTS: value must be between 1 and 32
+
+💡 Use --skip-validation to bypass validation (not recommended)
+```
+
+## spiders delete
+
+Delete a spider and all its associated data.
+
+### Syntax
+
+```bash
+./scrapai spiders delete <name> [--project <name>] [--force]
+```
+
+### Arguments
+
+<ParamField path="name" type="string" required>
+  Spider name to delete.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string">
+  Project name. If specified, only deletes spider from that project.
+</ParamField>
+
+<ParamField path="--force" type="flag">
+  Skip confirmation prompt.
+</ParamField>
+
+### Examples
+
+```bash
+# Delete spider with confirmation
+./scrapai spiders delete bbc_co_uk --project news
+
+# Delete without confirmation
+./scrapai spiders delete old_spider --project archive --force
+```
+
+### Output
+
+#### With Confirmation
+
+```bash
+$ ./scrapai spiders delete bbc_co_uk --project news
+Are you sure you want to delete spider 'bbc_co_uk' in project 'news'? (y/N): y
+🗑️  Spider 'bbc_co_uk' in project 'news' deleted!
+```
+
+#### Force Delete
+
+```bash
+$ ./scrapai spiders delete bbc_co_uk --project news --force
+🗑️  Spider 'bbc_co_uk' in project 'news' deleted!
+```
+
+<Warning>
+Deleting a spider removes:
+- Spider configuration
+- All URL matching rules
+- All custom settings
+- **All scraped items** associated with this spider
+
+This operation cannot be undone.
+</Warning>
+
+## Database Storage
+
+Spiders are stored across multiple tables:
+
+### `spiders` Table
+
+- `id`: Primary key (auto-increment)
+- `name`: Spider name (unique per project)
+- `project`: Project name
+- `allowed_domains`: JSON array
+- `start_urls`: JSON array
+- `source_url`: Original website URL
+- `active`: Boolean (currently always true)
+- `callbacks_config`: JSON object with callback definitions
+- `created_at`: Timestamp
+- `updated_at`: Timestamp
+
+### `spider_rules` Table
+
+- `spider_id`: Foreign key to spiders
+- `allow_patterns`: JSON array of URL patterns to allow
+- `deny_patterns`: JSON array of URL patterns to deny
+- `restrict_xpaths`: JSON array of XPath restrictions
+- `restrict_css`: JSON array of CSS restrictions
+- `callback`: Callback function name
+- `follow`: Boolean (whether to follow links)
+- `priority`: Integer (higher = processed first)
+
+### `spider_settings` Table
+
+- `spider_id`: Foreign key to spiders
+- `key`: Setting name
+- `value`: Setting value (as string)
+- `type`: Value type (str, int, bool, json)
+
+## Working with Templates
+
+ScrapAI includes example spider configs in `templates/`:
+
+```bash
+# Import example spider
+./scrapai spiders import templates/bbc_spider.json --project examples
+
+# View all templates
+ls -la templates/*.json
+```
+
+Templates cover various site types:
+- News sites (BBC, Reuters)
+- E-commerce (product listings)
+- Forums (discussion threads)
+- Cloudflare-protected sites
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Run Crawls" icon="play" href="/cli/crawl">
+  Start crawling with your imported spiders
+</Card>
+
+<Card title="View Data" icon="eye" href="/cli/data">
+  Inspect and export scraped items
+</Card>
+
+</CardGroup>

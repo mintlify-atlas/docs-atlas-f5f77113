@@ -1,0 +1,594 @@
+---
+title: 'Migrating Existing Scrapers'
+description: 'Convert Scrapy, BeautifulSoup, and other scrapers to ScrapAI'
+icon: 'arrow-right-arrow-left'
+---
+
+Migrate existing scrapers from Scrapy, BeautifulSoup, Scrapling, or any Python scraping framework to ScrapAI's database-driven architecture.
+
+## Overview
+
+Migrating to ScrapAI means converting your Python scraping code into JSON configs. The process:
+
+1. **Analyze existing code** to understand extraction logic
+2. **Map to ScrapAI concepts** (rules, extractors, callbacks)
+3. **Generate JSON config** with equivalent behavior
+4. **Test and verify** extraction quality
+5. **Deploy to database** and retire old code
+
+## Why Migrate?
+
+From `README.md:170-179`:
+
+> Your existing scrapers keep running while you verify. No big bang migration required.
+
+**Benefits:**
+
+- **Database-first management**: Change settings across 100 spiders with one SQL query
+- **Uniform structure**: Consistent schema, validation, naming conventions
+- **Built-in features**: Cloudflare bypass, checkpoint, proxy escalation, incremental crawling
+- **Easy to review**: JSON configs are easier to audit than Python code
+- **AI-assisted updates**: Point an agent at a broken spider to auto-fix extraction rules
+
+## Migration Workflow
+
+Using an AI agent (Claude Code, Cursor, etc.):
+
+```
+You: "Migrate my spider at scripts/bbc_spider.py to ScrapAI"
+Agent: [Reads Python, extracts URL patterns and selectors, writes JSON config, tests, saves to database]
+```
+
+### Manual Migration
+
+For direct control:
+
+1. Read your existing spider code
+2. Extract URL patterns, selectors, and extraction logic
+3. Write equivalent JSON config (see examples below)
+4. Import: `./scrapai spiders import config.json --project myproject`
+5. Test: `./scrapai crawl spider_name --project myproject --limit 5`
+6. Compare output with original spider
+7. Iterate until quality matches
+
+## Scrapy Spider Migration
+
+### Original Scrapy Spider
+
+```python scrapy_spider.py
+import scrapy
+from scrapy.linkextractors import LinkExtractor
+from scrapy.spiders import CrawlSpider, Rule
+
+class BBCSpider(CrawlSpider):
+    name = 'bbc'
+    allowed_domains = ['bbc.com', 'bbc.co.uk']
+    start_urls = ['https://www.bbc.com/news']
+
+    rules = (
+        # Follow category pages
+        Rule(
+            LinkExtractor(allow=r'/news/[a-z_]+$'),
+            follow=True,
+        ),
+        # Extract articles
+        Rule(
+            LinkExtractor(allow=r'/news/articles/[a-z0-9-]+$'),
+            callback='parse_article',
+            follow=False,
+        ),
+    )
+
+    def parse_article(self, response):
+        yield {
+            'url': response.url,
+            'title': response.css('h1.article-headline::text').get(),
+            'content': ' '.join(response.css('div.article-body p::text').getall()),
+            'author': response.css('span.author-name::text').get(),
+            'date': response.css('time.date-published::attr(datetime)').get(),
+        }
+```
+
+### Equivalent ScrapAI Config
+
+```json bbc_config.json
+{
+  "name": "bbc_news",
+  "source_url": "https://www.bbc.com/news",
+  "allowed_domains": ["bbc.com", "bbc.co.uk"],
+  "start_urls": ["https://www.bbc.com/news"],
+  "rules": [
+    {
+      "allow": ["/news/[a-z_]+$"],
+      "follow": true,
+      "priority": 10
+    },
+    {
+      "allow": ["/news/articles/[a-z0-9-]+$"],
+      "callback": "parse_article",
+      "follow": false,
+      "priority": 100
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1
+  },
+  "callbacks": {
+    "parse_article": {
+      "extract": {
+        "title": {
+          "css": "h1.article-headline::text"
+        },
+        "content": {
+          "css": "div.article-body p::text",
+          "get_all": true,
+          "processors": [
+            {"type": "join", "separator": " "}
+          ]
+        },
+        "author": {
+          "css": "span.author-name::text"
+        },
+        "published_date": {
+          "css": "time.date-published::attr(datetime)",
+          "processors": [
+            {"type": "parse_datetime"}
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+### Key Mappings
+
+| Scrapy Concept | ScrapAI Equivalent |
+|----------------|--------------------|
+| `name` | `name` |
+| `allowed_domains` | `allowed_domains` |
+| `start_urls` | `start_urls` |
+| `LinkExtractor(allow=...)` | `rules[].allow` |
+| `LinkExtractor(deny=...)` | `rules[].deny` |
+| `Rule(follow=True)` | `rules[].follow: true` |
+| `Rule(callback='parse')` | `rules[].callback: "parse"` |
+| `response.css('selector::text').get()` | `css: "selector::text"` |
+| `response.css('selector::text').getall()` | `css: "selector::text", get_all: true` |
+| `response.xpath('//div')` | `xpath: "//div"` |
+| `' '.join(texts)` | `processors: [{"type": "join"}]` |
+
+## BeautifulSoup Migration
+
+### Original BeautifulSoup Script
+
+```python bs4_scraper.py
+import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
+import json
+
+url = 'https://example.com/products'
+response = requests.get(url)
+soup = BeautifulSoup(response.text, 'html.parser')
+
+products = []
+for item in soup.select('div.product-card'):
+    product = {
+        'name': item.select_one('h3.product-name').text.strip(),
+        'price': item.select_one('span.price').text.strip().replace('$', ''),
+        'url': urljoin(url, item.select_one('a')['href']),
+        'image': item.select_one('img')['src'],
+    }
+    products.append(product)
+
+with open('products.json', 'w') as f:
+    json.dump(products, f, indent=2)
+```
+
+### Equivalent ScrapAI Config
+
+```json products_config.json
+{
+  "name": "example_products",
+  "source_url": "https://example.com/products",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/products"],
+  "rules": [
+    {
+      "allow": ["/products$"],
+      "callback": "parse_products",
+      "follow": false
+    }
+  ],
+  "settings": {
+    "DOWNLOAD_DELAY": 0.5
+  },
+  "callbacks": {
+    "parse_products": {
+      "extract": {
+        "products": {
+          "type": "nested_list",
+          "selector": "div.product-card",
+          "extract": {
+            "name": {
+              "css": "h3.product-name::text",
+              "processors": [{"type": "strip"}]
+            },
+            "price": {
+              "css": "span.price::text",
+              "processors": [
+                {"type": "strip"},
+                {"type": "replace", "old": "$", "new": ""},
+                {"type": "cast", "to": "float"}
+              ]
+            },
+            "url": {
+              "css": "a::attr(href)"
+            },
+            "image": {
+              "css": "img::attr(src)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+### Key Differences
+
+**BeautifulSoup:**
+- Manual HTTP requests
+- Manual link extraction
+- Manual JSON export
+- No retry logic
+- No rate limiting
+
+**ScrapAI:**
+- Scrapy handles requests (retries, delays, middleware)
+- Automatic link extraction via rules
+- Automatic JSONL export
+- Built-in retry and error handling
+- Configurable rate limiting
+
+## Scrapling Migration
+
+From `README.md:32`:
+
+> For single-site scraping with fine-grained control, use Scrapling. ScrapAI is for multi-site fleets.
+
+**When to migrate from Scrapling:**
+
+- You have 10+ sites to scrape
+- Sites have similar structure (e.g., all news sites)
+- You want database-driven management
+- You need scheduling and monitoring
+
+**When to keep Scrapling:**
+
+- Single site with complex interaction
+- Heavy JavaScript rendering
+- Fine-grained control needed
+- Login/auth flows
+
+### Example Migration
+
+```python scrapling_script.py
+from scrapling import Fetcher
+
+fetcher = Fetcher()
+page = fetcher.get('https://news.ycombinator.com')
+
+titles = page.css('span.titleline > a').text_content(all=True)
+for title in titles:
+    print(title)
+```
+
+```json hn_config.json
+{
+  "name": "hackernews",
+  "source_url": "https://news.ycombinator.com",
+  "allowed_domains": ["news.ycombinator.com"],
+  "start_urls": ["https://news.ycombinator.com"],
+  "rules": [
+    {
+      "allow": ["/$"],
+      "callback": "parse_frontpage",
+      "follow": false
+    }
+  ],
+  "callbacks": {
+    "parse_frontpage": {
+      "extract": {
+        "stories": {
+          "type": "nested_list",
+          "selector": "span.titleline > a",
+          "extract": {
+            "title": {
+              "css": "::text"
+            },
+            "url": {
+              "css": "::attr(href)"
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Processors for Data Cleaning
+
+From `core/schemas.py:131-156`:
+
+```python
+allowed = {
+    "strip",
+    "replace",
+    "regex",
+    "cast",
+    "join",
+    "default",
+    "lowercase",
+    "parse_datetime",
+}
+```
+
+### Common Processor Patterns
+
+**Strip whitespace:**
+
+```json
+{"type": "strip"}
+```
+
+**Remove characters:**
+
+```json
+{"type": "replace", "old": "$", "new": ""}
+```
+
+**Extract with regex:**
+
+```json
+{"type": "regex", "pattern": "\\d+"}
+```
+
+**Convert type:**
+
+```json
+{"type": "cast", "to": "float"}
+```
+
+**Join list:**
+
+```json
+{"type": "join", "separator": " "}
+```
+
+**Default value:**
+
+```json
+{"type": "default", "value": "Unknown"}
+```
+
+**Lowercase:**
+
+```json
+{"type": "lowercase"}
+```
+
+**Parse datetime:**
+
+```json
+{"type": "parse_datetime"}
+```
+
+## Validation During Migration
+
+All configs go through strict validation before import. From `core/schemas.py:215-402`:
+
+### Spider Name Validation
+
+```python
+@field_validator("name")
+@classmethod
+def validate_name(cls, v):
+    if not re.match(r"^[a-zA-Z0-9_-]+$", v):
+        raise ValueError(
+            f"Invalid spider name: {v}. "
+            "Only alphanumeric characters, underscores, and hyphens allowed."
+        )
+    return v
+```
+
+### URL Validation (SSRF Protection)
+
+```python
+@field_validator("source_url", "start_urls")
+@classmethod
+def validate_urls(cls, v):
+    allowed_schemes = {"http", "https"}
+    
+    # Check scheme
+    if not any(url.lower().startswith(f"{scheme}://") for scheme in allowed_schemes):
+        raise ValueError(
+            f"Invalid URL scheme: {url}. Only HTTP and HTTPS are allowed."
+        )
+    
+    # Prevent SSRF to localhost/private IPs
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if hostname in ("localhost", "0.0.0.0"):
+        raise ValueError(
+            f"URL points to localhost: {url}. Blocked to prevent SSRF attacks."
+        )
+    
+    # Check if resolves to private IP
+    ip = ipaddress.ip_address(hostname)
+    if ip.is_private or ip.is_loopback:
+        raise ValueError(
+            f"URL points to private IP: {url}. Blocked to prevent SSRF attacks."
+        )
+```
+
+### Callback Validation
+
+```python
+@field_validator("callbacks")
+@classmethod
+def validate_callbacks(cls, v):
+    reserved_names = {
+        "parse_article",
+        "parse_start_url",
+        "start_requests",
+        "from_crawler",
+        "closed",
+        "parse",
+    }
+    
+    for callback_name in v.keys():
+        # Must be valid Python identifier
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", callback_name):
+            raise ValueError(
+                f"Invalid callback name: '{callback_name}'. "
+                "Must be a valid Python identifier."
+            )
+        
+        # Must not be reserved
+        if callback_name in reserved_names:
+            raise ValueError(
+                f"Callback name '{callback_name}' is reserved and cannot be used."
+            )
+```
+
+## Testing After Migration
+
+### Compare Output Quality
+
+```bash
+# Run old spider
+python old_spider.py > old_output.json
+
+# Run new ScrapAI spider
+./scrapai crawl new_spider --project myproject --limit 10
+./scrapai export new_spider --project myproject --format json > new_output.json
+
+# Compare field coverage
+python -c "
+import json
+old = json.load(open('old_output.json'))
+new = json.load(open('new_output.json'))
+
+old_fields = set(old[0].keys())
+new_fields = set(new[0].keys())
+
+print('Missing fields:', old_fields - new_fields)
+print('Extra fields:', new_fields - old_fields)
+"
+```
+
+### Verify Extraction Rules
+
+```bash
+# Inspect a sample page
+./scrapai inspect https://example.com/article --project myproject
+
+# Check if selectors match
+grep 'title' output.html
+grep 'content' output.html
+```
+
+### Performance Comparison
+
+```bash
+# Time old spider
+time python old_spider.py
+
+# Time new spider
+time ./scrapai crawl new_spider --project myproject
+```
+
+## Incremental Migration Strategy
+
+### Phase 1: Pilot (1-2 weeks)
+
+1. Pick 3-5 representative spiders
+2. Migrate to ScrapAI
+3. Run both old and new in parallel
+4. Compare output quality
+5. Tune extraction rules until quality matches
+
+### Phase 2: Batch Migration (2-4 weeks)
+
+6. Group remaining spiders by similarity
+7. Migrate one group at a time
+8. Reuse patterns from pilot spiders
+9. Test each batch before moving to next
+
+### Phase 3: Cutover (1 week)
+
+10. Switch production traffic to ScrapAI
+11. Keep old spiders as backup for 1 month
+12. Monitor error rates and data quality
+13. Retire old code once confident
+
+### Phase 4: Optimization (ongoing)
+
+14. Tune DOWNLOAD_DELAY and CONCURRENT_REQUESTS
+15. Enable DeltaFetch for incremental crawling
+16. Set up Airflow for scheduling
+17. Add custom callbacks for edge cases
+
+## Common Pitfalls
+
+### Regex Patterns
+
+**Problem**: Scrapy uses Python regex, ScrapAI uses the same.
+
+**Solution**: Copy patterns directly, but test with `./scrapai crawl --limit 5`.
+
+### Relative vs. Absolute URLs
+
+**Problem**: Old spider might use `urljoin()` for relative URLs.
+
+**Solution**: Scrapy handles this automatically. Just use `css: "a::attr(href)"`.
+
+### Custom Middleware
+
+**Problem**: Old spider uses custom Scrapy middleware.
+
+**Solution**:
+- **Proxy rotation**: Use ScrapAI's built-in proxy escalation
+- **Cloudflare**: Enable `CLOUDFLARE_ENABLED: true`
+- **Custom headers**: Add to spider settings
+- **Other middleware**: May require framework changes (contribute!)
+
+### Dynamic Content (JavaScript)
+
+**Problem**: Old spider uses Selenium or Playwright.
+
+**Solution**: Use ScrapAI's Playwright extractor:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright"],
+    "PLAYWRIGHT_WAIT_SELECTOR": "div.content"
+  }
+}
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Custom Callbacks" icon="code" href="/core-features/custom-callbacks">
+    Write custom extraction logic for complex sites
+  </Card>
+  <Card title="Security" icon="shield" href="/advanced/security">
+    Understanding config validation and SSRF protection
+  </Card>
+</CardGroup>

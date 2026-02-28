@@ -1,0 +1,409 @@
+---
+title: "Projects Commands"
+description: "List and manage project organization"
+---
+
+Projects provide logical grouping for spiders and queue items. Each project is a namespace that keeps related spiders organized.
+
+## projects list
+
+List all projects in the database.
+
+### Syntax
+
+```bash
+./scrapai projects list
+```
+
+### Output
+
+```bash
+$ ./scrapai projects list
+📁 Available Projects:
+  • news
+    Spiders: 8, Queue items: 23
+  • ecommerce
+    Spiders: 12, Queue items: 47
+  • research
+    Spiders: 5, Queue items: 0
+  • archive
+    Spiders: 3, Queue items: 2
+```
+
+### Information Shown
+
+- **Project name**: Identifier used in all commands
+- **Spider count**: Number of spiders in this project
+- **Queue items**: Number of items in queue for this project
+
+### Empty Database
+
+```bash
+$ ./scrapai projects list
+No projects found.
+```
+
+## Project Organization
+
+Projects are **implicit** - they don't need to be created explicitly. When you import a spider or add a queue item with `--project <name>`, the project is automatically associated.
+
+### Creating Projects
+
+Projects are created by using them:
+
+```bash
+# Import spider creates project "news"
+./scrapai spiders import bbc_spider.json --project news
+
+# Add queue item creates project "research"
+./scrapai queue add https://example.com --project research
+```
+
+### Default Project
+
+If `--project` is not specified, most commands use `default`:
+
+```bash
+# These are equivalent:
+./scrapai spiders list
+./scrapai spiders list --project default
+```
+
+<Tip>
+Always use explicit `--project` names for clarity. Avoid relying on the default.
+</Tip>
+
+## Project Naming
+
+Project names should be:
+- Descriptive: `news`, `ecommerce`, `research`
+- Lowercase: `news` not `News`
+- No spaces: `tech_blogs` not `tech blogs`
+- Consistent: Choose a naming scheme and stick to it
+
+### Good Examples
+
+```
+news
+ecommerce
+research_papers
+tech_blogs
+corporate_sites
+government_data
+```
+
+### Bad Examples
+
+```
+Project 1              # Not descriptive
+My News Project        # Spaces and mixed case
+project_123            # Not meaningful
+test                   # Too generic
+```
+
+## Use Cases
+
+### Multi-Domain Projects
+
+Group related spiders:
+
+```bash
+# News aggregation project
+./scrapai spiders import bbc.json --project news
+./scrapai spiders import cnn.json --project news
+./scrapai spiders import reuters.json --project news
+
+# E-commerce monitoring project
+./scrapai spiders import amazon.json --project ecommerce
+./scrapai spiders import ebay.json --project ecommerce
+```
+
+### Team Organization
+
+Separate projects by team or purpose:
+
+```bash
+# Marketing team
+./scrapai spiders import competitors.json --project marketing
+
+# Research team
+./scrapai spiders import papers.json --project research
+
+# Sales team
+./scrapai spiders import leads.json --project sales
+```
+
+### Development vs Production
+
+Separate test and production spiders:
+
+```bash
+# Development/testing
+./scrapai spiders import test_spider.json --project dev
+./scrapai crawl test_spider --project dev --limit 5
+
+# Production
+./scrapai spiders import prod_spider.json --project prod
+./scrapai crawl prod_spider --project prod
+```
+
+## Project-Level Operations
+
+### List Spiders by Project
+
+```bash
+./scrapai spiders list --project news
+```
+
+### Run All Spiders in Project
+
+```bash
+./scrapai crawl-all --project news
+```
+
+### Queue Management by Project
+
+```bash
+# Add to project queue
+./scrapai queue add https://example.com --project news
+
+# List project queue
+./scrapai queue list --project news
+
+# Process project queue
+./scrapai queue next --project news
+```
+
+### Export Project Data
+
+```bash
+# Export all spiders in project
+for spider in $(./scrapai spiders list --project news | grep '•' | awk '{print $2}'); do
+  ./scrapai export $spider --project news --format csv
+done
+```
+
+## Data Organization
+
+Files are organized by project:
+
+```
+data/
+├── news/
+│   ├── bbc_co_uk/
+│   │   ├── crawls/
+│   │   ├── exports/
+│   │   └── checkpoint/
+│   ├── cnn_com/
+│   └── reuters_com/
+├── ecommerce/
+│   ├── amazon_spider/
+│   └── ebay_spider/
+└── research/
+    └── papers_spider/
+```
+
+## Database Schema
+
+Projects are stored as string fields:
+
+### `spiders` Table
+
+```sql
+CREATE TABLE spiders (
+    id INTEGER PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    project VARCHAR(255),  -- Project name
+    ...
+);
+```
+
+### `crawl_queue` Table
+
+```sql
+CREATE TABLE crawl_queue (
+    id INTEGER PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL,  -- Project name
+    website_url VARCHAR(2048) NOT NULL,
+    ...
+);
+```
+
+### Project Uniqueness
+
+- **Spiders**: Unique by `(name, project)` - same spider name can exist in different projects
+- **Queue**: Unique by `(project_name, website_url)` - same URL can be in different projects
+
+## Renaming Projects
+
+Projects can be renamed via direct database updates:
+
+```bash
+# Rename project "old_name" to "new_name"
+./scrapai db query "UPDATE spiders SET project='new_name' WHERE project='old_name'" --yes
+./scrapai db query "UPDATE crawl_queue SET project_name='new_name' WHERE project_name='old_name'" --yes
+```
+
+<Warning>
+Manually renaming projects does not rename the data directories. You'll need to rename those separately:
+
+```bash
+mv data/old_name data/new_name
+```
+</Warning>
+
+## Deleting Projects
+
+Delete all spiders in a project:
+
+```bash
+# List spiders first
+./scrapai spiders list --project old_project
+
+# Delete each spider
+./scrapai spiders delete spider1 --project old_project --force
+./scrapai spiders delete spider2 --project old_project --force
+```
+
+Clean up queue:
+
+```bash
+./scrapai queue cleanup --project old_project --all --force
+```
+
+Remove data directory:
+
+```bash
+rm -rf data/old_project
+```
+
+## Parallel Processing by Project
+
+Run multiple projects in parallel:
+
+```bash
+# Terminal 1: News project
+while true; do
+  ./scrapai queue next --project news && # process
+done
+
+# Terminal 2: E-commerce project
+while true; do
+  ./scrapai queue next --project ecommerce && # process
+done
+
+# Terminal 3: Research project
+while true; do
+  ./scrapai queue next --project research && # process
+done
+```
+
+## Project Statistics
+
+Get detailed stats per project:
+
+```bash
+# Spider count
+./scrapai db query "SELECT project, COUNT(*) FROM spiders GROUP BY project"
+
+# Item count per project
+./scrapai db query "
+SELECT s.project, COUNT(si.id) as items
+FROM spiders s
+LEFT JOIN scraped_items si ON s.id = si.spider_id
+GROUP BY s.project
+ORDER BY items DESC
+"
+
+# Queue status by project
+./scrapai db query "
+SELECT project_name, status, COUNT(*) 
+FROM crawl_queue 
+GROUP BY project_name, status
+"
+```
+
+## Best Practices
+
+### 1. Use Descriptive Names
+
+```bash
+# Good
+./scrapai spiders import spider.json --project tech_news_monitoring
+
+# Bad
+./scrapai spiders import spider.json --project proj1
+```
+
+### 2. Separate Dev and Prod
+
+```bash
+# Development
+./scrapai spiders import spider.json --project dev_news
+./scrapai crawl spider --project dev_news --limit 10
+
+# Production
+./scrapai spiders import spider.json --project prod_news
+./scrapai crawl spider --project prod_news
+```
+
+### 3. Document Project Purpose
+
+Maintain a `projects.md` file:
+
+```markdown
+# ScrapAI Projects
+
+## news
+News aggregation from major outlets (BBC, CNN, Reuters)
+
+## ecommerce
+Price monitoring for competitive analysis
+
+## research
+Academic paper scraping for literature review
+```
+
+### 4. Consistent Naming
+
+Choose a naming convention:
+
+```bash
+# Option 1: Simple names
+news, ecommerce, research
+
+# Option 2: Prefixed names
+client_acme, client_beta, internal_research
+
+# Option 3: Dated names
+news_2026, ecommerce_q1, research_feb
+```
+
+## Migrating Between Projects
+
+Move spiders between projects:
+
+```bash
+# Export spider config
+./scrapai db query "SELECT name FROM spiders WHERE project='old_project'" --format json > spiders.json
+
+# Update project in database
+./scrapai db query "UPDATE spiders SET project='new_project' WHERE project='old_project'" --yes
+
+# Move data directory
+mv data/old_project data/new_project
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Spider Management" icon="spider" href="/cli/spiders">
+  Import spiders into projects
+</Card>
+
+<Card title="Queue Management" icon="list" href="/cli/queue">
+  Add URLs to project queues
+</Card>
+
+</CardGroup>

@@ -1,0 +1,370 @@
+---
+title: Checkpoint Pause/Resume
+description: Pause long-running crawls and resume them later without losing progress
+---
+
+ScrapAI automatically enables checkpoint support for production crawls, allowing you to pause long-running crawls and resume them later without losing progress.
+
+## How It Works
+
+<Steps>
+<Step title="Automatic for production crawls">
+Checkpoint is **automatically enabled** when running production crawls (no `--limit` flag)
+</Step>
+
+<Step title="Press Ctrl+C to pause">
+Checkpoint saved automatically when interrupted
+</Step>
+
+<Step title="Run same command to resume">
+Automatically detects checkpoint and resumes from where you left off
+</Step>
+
+<Step title="Automatic cleanup on success">
+Checkpoint deleted automatically on successful completion
+</Step>
+</Steps>
+
+<Note>
+**Test crawls** (with `--limit`) do **not** use checkpoints since they're short-running.
+</Note>
+
+## What Gets Saved
+
+Scrapy's JOBDIR feature saves:
+
+1. **Pending requests** - All URLs waiting to be crawled
+2. **Duplicates filter** - URLs already visited (prevents re-crawling)
+3. **Spider state** - Any custom state stored in `spider.state` dict
+
+## Usage
+
+### Production Crawl with Checkpoint
+
+```bash
+# Start production crawl (checkpoint auto-enabled)
+./scrapai crawl myspider --project myproject
+```
+
+**Console output:**
+```log
+💾 Checkpoint enabled: ./data/myproject/myspider/checkpoint
+Press Ctrl+C to pause, run same command to resume
+```
+
+**Pause the crawl:**
+```bash
+# Press Ctrl+C
+^C
+```
+
+**Resume later:**
+```bash
+# Run same command
+./scrapai crawl myspider --project myproject
+# Automatically detects checkpoint and resumes
+```
+
+### Test Crawl (No Checkpoint)
+
+```bash
+# Test mode - no checkpoint needed (short run)
+./scrapai crawl myspider --project myproject --limit 10
+```
+
+**Console output:**
+```log
+🧪 Test mode: Saving to database (limit: 10 items)
+```
+
+## Checkpoint Storage
+
+Checkpoints are stored in your DATA_DIR:
+
+```
+DATA_DIR/<project>/<spider>/checkpoint/
+```
+
+**Example directory structure:**
+```
+./data/myproject/myspider/
+├── analysis/        # Phase 1-3 files
+├── crawls/          # Production outputs
+├── exports/         # Database exports
+└── checkpoint/      # Checkpoint state (auto-cleaned on success)
+```
+
+## Automatic Cleanup
+
+<Note>
+**Automatic cleanup on successful completion:**
+- When spider completes successfully (no Ctrl+C), checkpoint directory is automatically deleted
+- Saves disk space
+- Only failed/interrupted crawls keep checkpoints
+</Note>
+
+**Manual cleanup:**
+
+```bash
+# If you want to discard a checkpoint and start fresh
+rm -rf ./data/myproject/myspider/checkpoint/
+```
+
+## Complete Example
+
+<Steps>
+<Step title="Start production crawl">
+```bash
+./scrapai crawl techcrunch --project news
+```
+
+**Output:**
+```log
+💾 Checkpoint enabled: ./data/news/techcrunch/checkpoint
+Press Ctrl+C to pause, run same command to resume
+
+Crawling: https://techcrunch.com/
+Scraped 50 items...
+Scraped 100 items...
+```
+</Step>
+
+<Step title="Pause crawl (Ctrl+C)">
+```bash
+^C
+```
+
+**Output:**
+```log
+Received interrupt signal, shutting down...
+Checkpoint saved: 150 items scraped, 237 URLs pending
+Run same command to resume from checkpoint
+```
+</Step>
+
+<Step title="Check checkpoint exists">
+```bash
+ls -la ./data/news/techcrunch/checkpoint/
+```
+
+**Output:**
+```
+drwxr-xr-x  5 user  staff   160 Feb 24 10:30 .
+drwxr-xr-x  7 user  staff   224 Feb 24 10:15 ..
+-rw-r--r--  1 user  staff  4096 Feb 24 10:30 requests.queue
+-rw-r--r--  1 user  staff  8192 Feb 24 10:30 dupefilter.db
+-rw-r--r--  1 user  staff   512 Feb 24 10:30 spider.state
+```
+</Step>
+
+<Step title="Resume crawl">
+```bash
+./scrapai crawl techcrunch --project news
+```
+
+**Output:**
+```log
+♻️  Resuming from checkpoint: 150 items already scraped, 237 URLs pending
+
+Continuing crawl...
+Scraped 160 items...
+Scraped 200 items...
+Crawl completed successfully!
+
+🧹 Checkpoint cleaned up (crawl completed)
+```
+</Step>
+</Steps>
+
+## Limitations
+
+<Warning>
+**Request callbacks must be spider methods** (Scrapy limitation):
+
+```python
+# ✅ Works (spider method)
+Request(url, callback=self.parse_article)
+
+# ❌ Won't work (external function)
+Request(url, callback=some_external_function)
+```
+
+✅ **ScrapAI spiders already compatible**: Our database spiders use spider methods (`self.parse`), so checkpoints work out of the box!
+</Warning>
+
+<Note>
+Other limitations:
+- **Cookie expiration**: If you wait too long to resume (days/weeks), cookies may expire and requests may fail. Resume within a reasonable timeframe (hours/days, not weeks).
+- **Multiple runs**: Each spider should have only one checkpoint at a time. Don't run the same spider concurrently while a checkpoint exists.
+- **Proxy type changes**: If you change `--proxy-type` when resuming, the checkpoint is automatically cleared (see below).
+</Note>
+
+## Proxy Type Changes (Expert-in-the-Loop)
+
+<Warning>
+If you change `--proxy-type` when resuming, the checkpoint is automatically cleared and crawl starts fresh.
+</Warning>
+
+**Example scenario:**
+
+<Steps>
+<Step title="Start crawl with auto mode">
+```bash
+./scrapai crawl myspider --project proj
+```
+
+Uses datacenter proxies (auto mode default)
+</Step>
+
+<Step title="Datacenter fails, get expert prompt">
+```log
+⚠️  EXPERT-IN-THE-LOOP: Datacenter proxy failed
+🏠 To use residential proxy, run:
+  ./scrapai crawl myspider --project proj --proxy-type residential
+```
+
+Press Ctrl+C to pause
+</Step>
+
+<Step title="Resume with residential proxy">
+```bash
+./scrapai crawl myspider --project proj --proxy-type residential
+```
+
+**Output:**
+```log
+⚠️  Proxy type changed: auto → residential
+🗑️  Clearing checkpoint to ensure all URLs retried with residential proxy
+♻️  Starting fresh crawl
+```
+</Step>
+</Steps>
+
+**Why checkpoint is cleared:**
+- Ensures blocked URLs are retried with new proxy type
+- Prevents Scrapy's dupefilter from skipping already-seen failed URLs
+- Simpler and safer than complex retry logic
+- User explicitly chose expensive residential proxy, accepts comprehensive re-crawl
+
+## When Checkpoints Are Useful
+
+<Tabs>
+<Tab title="Useful For">
+✅ **Long-running crawls** (hours/days)
+Resume if interrupted
+
+✅ **Unstable connections**
+Resume after network failures
+
+✅ **System maintenance**
+Pause before server restart, resume after
+
+✅ **Resource management**
+Pause during high-load periods, resume later
+</Tab>
+
+<Tab title="Not Needed For">
+❌ **Short test crawls** (minutes)
+Not needed, checkpoints disabled
+
+❌ **Quick prototyping**
+Use `--limit` flag, no checkpoints
+</Tab>
+</Tabs>
+
+## Technical Details
+
+**Built on Scrapy's JOBDIR:**
+- Uses Scrapy's native pause/resume feature (not custom implementation)
+- Checkpoint files are pickle-serialized Scrapy objects
+- Atomic writes prevent checkpoint corruption
+- Compatible with all Scrapy spiders
+
+**Directory per spider:**
+- Each spider gets its own checkpoint directory
+- Prevents conflicts between spiders
+- Clean separation of state
+
+**Smart cleanup:**
+- Exit code 0 (success) → cleanup checkpoint
+- Exit code != 0 (error/Ctrl+C) → keep checkpoint for resume
+
+## Troubleshooting
+
+### Checkpoint Not Resuming
+
+<Steps>
+<Step title="Check if checkpoint exists">
+```bash
+ls -la ./data/myproject/myspider/checkpoint/
+```
+
+If directory doesn't exist:
+- Checkpoint was cleaned up (successful completion)
+- Or never created (test mode with `--limit`)
+</Step>
+
+<Step title="Verify same command">
+Must use exact same command to resume:
+```bash
+# Original
+./scrapai crawl myspider --project proj --proxy-type datacenter
+
+# Resume (same command)
+./scrapai crawl myspider --project proj --proxy-type datacenter
+```
+</Step>
+
+<Step title="Check for proxy type change">
+Changing `--proxy-type` clears checkpoint automatically
+</Step>
+</Steps>
+
+### Start Fresh (Discard Checkpoint)
+
+```bash
+# Delete checkpoint directory
+rm -rf ./data/myproject/myspider/checkpoint/
+
+# Run crawl again
+./scrapai crawl myspider --project myproject
+```
+
+### Checkpoint from Old Spider Version
+
+<Warning>
+If you updated spider rules/selectors significantly, old checkpoint may be incompatible.
+</Warning>
+
+**Solution:**
+```bash
+# Delete checkpoint and start fresh
+rm -rf ./data/myproject/myspider/checkpoint/
+./scrapai crawl myspider --project myproject
+```
+
+### Checkpoint Files Too Large
+
+**Check size:**
+```bash
+du -sh ./data/myproject/myspider/checkpoint/
+```
+
+**Large checkpoints indicate:**
+- Many pending URLs (normal for large crawls)
+- Consider crawling in smaller batches
+- Or use incremental crawling (DeltaFetch)
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Incremental Crawling" icon="rotate" href="/guides/incremental-crawling">
+Skip unchanged pages on subsequent crawls
+</Card>
+<Card title="Queue Processing" icon="list" href="/guides/queue-processing">
+Batch process multiple websites
+</Card>
+<Card title="Proxy Escalation" icon="network-wired" href="/guides/proxy-escalation">
+Smart proxy usage with cost control
+</Card>
+</CardGroup>

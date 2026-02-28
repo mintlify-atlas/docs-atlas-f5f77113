@@ -1,0 +1,236 @@
+---
+title: Spider JSON Schema
+description: Complete spider configuration schema reference
+---
+
+Complete JSON schema for spider configuration. Import spiders from JSON files using `scrapai import <file> --project <name>`.
+
+## Root Schema
+
+<ParamField path="name" type="string" required>
+  Spider identifier (alphanumeric, underscores, hyphens only)
+  
+  **Validation:**
+  - Min length: 1
+  - Max length: 255
+  - Pattern: `^[a-zA-Z0-9_-]+$`
+  
+  **Example:** `"bbc_co_uk"`, `"example_shop"`
+</ParamField>
+
+<ParamField path="source_url" type="string" required>
+  Original website URL
+  
+  **Validation:**
+  - Must use `http://` or `https://` scheme
+  - Max length: 2048 characters
+  - No localhost or private IPs (SSRF protection)
+  
+  **Example:** `"https://www.bbc.co.uk/"`
+</ParamField>
+
+<ParamField path="allowed_domains" type="string[]" required>
+  List of domains the spider can crawl
+  
+  **Validation:**
+  - Min items: 1
+  - Valid domain format
+  - No localhost or private domains
+  
+  **Example:**
+  ```json
+  ["bbc.co.uk", "www.bbc.co.uk"]
+  ```
+</ParamField>
+
+<ParamField path="start_urls" type="string[]" required>
+  Initial URLs to crawl from
+  
+  **Validation:**
+  - Min items: 1
+  - Must use HTTP/HTTPS
+  - No localhost or private IPs
+  - Max 2048 chars per URL
+  
+  **Example:**
+  ```json
+  ["https://www.bbc.co.uk/"]
+  ```
+</ParamField>
+
+<ParamField path="rules" type="SpiderRuleSchema[]" default="[]">
+  URL matching and routing rules
+  
+  See [Spider Rules](/api/rules) for detailed schema.
+  
+  **Example:**
+  ```json
+  [
+    {
+      "allow": ["/news/articles/.*"],
+      "deny": ["/news/articles/.*#comments"],
+      "callback": "parse_article"
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="settings" type="SpiderSettingsSchema" default="{}">
+  Spider configuration settings
+  
+  See [Spider Settings](/api/settings) for all available options.
+  
+  **Example:**
+  ```json
+  {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16
+  }
+  ```
+</ParamField>
+
+<ParamField path="callbacks" type="object" default="null">
+  Named callback extraction configurations
+  
+  Keys must be valid Python identifiers. See [Callbacks](/api/callbacks) for schema.
+  
+  **Reserved names (cannot use):**
+  - `parse_article`
+  - `parse_start_url`
+  - `start_requests`
+  - `from_crawler`
+  - `closed`
+  - `parse`
+  
+  **Example:**
+  ```json
+  {
+    "parse_product": {
+      "extract": {
+        "name": {"css": "h1.product-name::text"},
+        "price": {"css": "span.price::text"}
+      }
+    }
+  }
+  ```
+</ParamField>
+
+## Complete Example
+
+### News Site (BBC)
+
+```json
+{
+  "name": "bbc_co_uk",
+  "source_url": "https://bbc.co.uk/",
+  "allowed_domains": ["bbc.co.uk", "www.bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/"],
+  "rules": [
+    {
+      "allow": ["/news/articles/.*"],
+      "deny": ["/news/articles/.*#comments"],
+      "callback": "parse_article"
+    },
+    {
+      "allow": ["/sport/.*/articles/.*"],
+      "deny": ["/sport/.*/articles/.*#comments"],
+      "callback": "parse_article"
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16,
+    "ROBOTSTXT_OBEY": true
+  }
+}
+```
+
+### E-commerce Site
+
+```json
+{
+  "name": "example_shop",
+  "source_url": "https://shop.example.com",
+  "allowed_domains": ["shop.example.com"],
+  "start_urls": ["https://shop.example.com/products"],
+  "rules": [
+    {
+      "allow": ["/product/[^/]+$"],
+      "callback": "parse_product",
+      "follow": false
+    },
+    {
+      "allow": ["/products", "/category/"],
+      "callback": null,
+      "follow": true
+    }
+  ],
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {
+          "css": "h1.product-name::text",
+          "processors": [{"type": "strip"}]
+        },
+        "price": {
+          "css": "span.price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "rating": {
+          "css": "span.rating::attr(data-rating)",
+          "processors": [{"type": "cast", "to": "float"}]
+        }
+      }
+    }
+  }
+}
+```
+
+## Validation Rules
+
+### Cross-Field Validation
+
+**Rule callbacks must be defined:**
+- If a rule references a `callback` name, that callback must exist in the `callbacks` object
+- Built-in callback `parse_article` is always available
+- Use `"callback": null` for navigation-only rules
+
+**Example error:**
+```
+Rule 0 references undefined callback: 'parse_product'. 
+Defined callbacks: parse_article
+```
+
+### Security Validation
+
+**SSRF Protection:**
+- URLs cannot point to localhost (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`)
+- URLs cannot point to private IP ranges
+- DNS resolution checked for private IPs
+
+**Injection Prevention:**
+- Spider names sanitized (alphanumeric + underscore/hyphen only)
+- Callback names must be valid Python identifiers
+- Reserved names blocked
+
+## Import Command
+
+```bash
+scrapai import spider.json --project myproject
+```
+
+Validation errors will be displayed with specific field paths and error messages.
+
+## Related
+
+- [Spider Rules](/api/rules) - URL matching configuration
+- [Spider Settings](/api/settings) - Available settings
+- [Callbacks](/api/callbacks) - Custom field extraction
+- [Extractors Overview](/api/extractors-overview) - Content extraction strategies

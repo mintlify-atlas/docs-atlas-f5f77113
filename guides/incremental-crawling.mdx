@@ -1,0 +1,512 @@
+---
+title: Incremental Crawling (DeltaFetch)
+description: Skip unchanged pages on subsequent crawls to save time and resources
+---
+
+DeltaFetch skips pages that haven't changed since the last crawl. First crawl scrapes everything; subsequent crawls only process new or modified pages.
+
+## How It Works
+
+<Steps>
+<Step title="First crawl">
+Scrapes all pages and stores content hashes
+</Step>
+
+<Step title="Subsequent crawls">
+Compares page hashes before processing
+</Step>
+
+<Step title="Skip unchanged">
+Pages with matching hashes are skipped
+</Step>
+
+<Step title="Process changed">
+Only new/modified pages are scraped
+</Step>
+</Steps>
+
+<Note>
+**Efficiency gains:**
+- Reduces bandwidth usage
+- Faster crawl times
+- Lower server load
+- Cost savings on large-scale crawls
+</Note>
+
+## Configuration
+
+### Basic Setup
+
+```json spider.json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+
+That's it! DeltaFetch is now enabled for your spider.
+
+### Custom Storage Location
+
+By default, hashes are stored in `.scrapy/deltafetch/<spider_name>/`. You can customize this:
+
+```json spider.json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DELTAFETCH_DIR": ".scrapy/deltafetch/my_spider"
+  }
+}
+```
+
+### Reset (For Testing)
+
+<Warning>
+Setting `DELTAFETCH_RESET: true` clears all stored hashes and re-crawls everything once. Remove this setting after the reset crawl.
+</Warning>
+
+```json spider.json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DELTAFETCH_RESET": true
+  }
+}
+```
+
+## Reset Options
+
+### Delete All Hash Storage
+
+```bash
+rm -rf .scrapy/deltafetch/
+```
+
+Removes all DeltaFetch data for all spiders.
+
+### Delete Specific Spider's Data
+
+```bash
+rm -rf .scrapy/deltafetch/<spider_name>/
+```
+
+Removes DeltaFetch data for one spider only.
+
+### One-Time Reset via Config
+
+Set `DELTAFETCH_RESET: true` in spider settings. This re-crawls everything once, then remove the setting.
+
+## Complete Example
+
+### News Site with Daily Updates
+
+```json news_spider.json
+{
+  "name": "dailynews",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/news"],
+  "rules": [
+    {
+      "allow": ["/article/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false,
+      "priority": 100
+    },
+    {
+      "allow": ["/news/"],
+      "callback": null,
+      "follow": true,
+      "priority": 50
+    }
+  ],
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DOWNLOAD_DELAY": 1
+  }
+}
+```
+
+**First crawl (Monday):**
+```bash
+./scrapai crawl dailynews --project news
+```
+
+```log
+Scraped 500 articles (first crawl - all new)
+Stored 500 content hashes
+```
+
+**Second crawl (Tuesday):**
+```bash
+./scrapai crawl dailynews --project news
+```
+
+```log
+[scrapy_deltafetch] DEBUG: Ignoring already fetched: https://example.com/article/old-1
+[scrapy_deltafetch] DEBUG: Ignoring already fetched: https://example.com/article/old-2
+...
+Scraped 50 articles (only new/modified)
+Skipped 450 unchanged articles
+```
+
+### Blog with Weekly Updates
+
+```json blog_spider.json
+{
+  "name": "techblog",
+  "allowed_domains": ["techblog.com"],
+  "start_urls": ["https://techblog.com/posts"],
+  "rules": [
+    {
+      "allow": ["/post/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false
+    }
+  ],
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DELTAFETCH_DIR": ".scrapy/deltafetch/techblog"
+  }
+}
+```
+
+**Weekly cron job:**
+```bash
+# crontab entry
+0 2 * * 1 cd /path/to/scrapai && ./scrapai crawl techblog --project blogs
+```
+
+Only new posts from the past week are scraped.
+
+## Combining with Other Features
+
+### DeltaFetch + Cloudflare Bypass
+
+```json spider.json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "hybrid"
+  }
+}
+```
+
+Skip unchanged pages while handling Cloudflare protection.
+
+### DeltaFetch + Sitemap
+
+```json spider.json
+{
+  "settings": {
+    "USE_SITEMAP": true,
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+
+Crawl sitemap URLs but skip unchanged pages.
+
+### DeltaFetch + Proxy
+
+```json spider.json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+
+```bash
+./scrapai crawl myspider --project proj --proxy-type datacenter
+```
+
+Combine incremental crawling with smart proxy usage.
+
+## Monitoring
+
+### Check Log Output
+
+Look for DeltaFetch debug messages:
+
+```log
+[scrapy_deltafetch] DEBUG: Ignoring already fetched: https://example.com/page1
+[scrapy_deltafetch] DEBUG: Ignoring already fetched: https://example.com/page2
+```
+
+These indicate pages being skipped.
+
+### Check Storage
+
+```bash
+# View size of hash database
+ls -lh .scrapy/deltafetch/
+
+# Example output:
+drwxr-xr-x  3 user  staff    96B Feb 24 10:30 myspider/
+```
+
+```bash
+# View spider-specific storage
+ls -lh .scrapy/deltafetch/myspider/
+
+# Example output:
+-rw-r--r--  1 user  staff   128K Feb 24 10:30 hashes.db
+```
+
+### Statistics
+
+Scrape stats show skipped items:
+
+```log
+'deltafetch/skipped': 450,
+'item_scraped_count': 50,
+```
+
+## Troubleshooting
+
+### Not Skipping Any Pages
+
+<Steps>
+<Step title="Verify setting is enabled">
+Check `DELTAFETCH_ENABLED: true` in spider settings
+</Step>
+
+<Step title="Check if first crawl">
+First crawl never skips (nothing to compare against)
+
+Run crawl again to see skipping behavior
+</Step>
+
+<Step title="Verify storage directory exists">
+```bash
+ls -la .scrapy/deltafetch/
+```
+
+If directory is empty, first crawl hasn't completed yet
+</Step>
+
+<Step title="Check hash database has data">
+```bash
+ls -lh .scrapy/deltafetch/<spider_name>/
+```
+
+File should have non-zero size
+</Step>
+</Steps>
+
+### Skipping Pages That Should Be Re-Crawled
+
+<Warning>
+If you need to force re-crawl all pages, delete the hash database.
+</Warning>
+
+**Option 1: Delete hash database**
+```bash
+rm -rf .scrapy/deltafetch/<spider_name>/
+```
+
+**Option 2: Use DELTAFETCH_RESET**
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DELTAFETCH_RESET": true
+  }
+}
+```
+
+Run crawl once, then remove `DELTAFETCH_RESET` setting.
+
+### Pages Changed But Not Detected
+
+**Possible causes:**
+
+1. **Content hash unchanged**
+   - Minor changes (timestamps, ads) may not affect core content hash
+   - DeltaFetch compares content body, not dynamic elements
+
+2. **Cache issues**
+   - Clear hash database and re-crawl
+
+3. **Spider extracts different content**
+   - Check if selectors are targeting correct content
+
+### Storage Growing Too Large
+
+**Check size:**
+```bash
+du -sh .scrapy/deltafetch/<spider_name>/
+```
+
+**Large storage indicates:**
+- Many unique pages crawled (normal)
+- Consider periodic cleanup for old sites
+
+**Cleanup old data:**
+```bash
+# Full reset
+rm -rf .scrapy/deltafetch/<spider_name>/
+
+# Or move to archive
+mv .scrapy/deltafetch/<spider_name>/ .scrapy/deltafetch/<spider_name>.old/
+```
+
+## Limitations
+
+<Note>
+**Important limitations:**
+
+1. **First crawl is always full**
+   - No prior hashes to compare against
+   - All pages are scraped
+
+2. **Detects content changes only**
+   - New pages are always crawled
+   - Only existing page changes are detected
+
+3. **Hash database is local**
+   - Not synced across machines
+   - Each machine maintains separate hash storage
+
+4. **Content-based detection**
+   - Minor metadata changes (timestamps) may not trigger re-crawl
+   - Focuses on main content body
+</Note>
+
+## Use Cases
+
+<Tabs>
+<Tab title="News Sites">
+**Scenario:** Daily news site with 1000s of articles
+
+**Benefits:**
+- First crawl: 5000 articles
+- Daily crawls: Only 50-100 new articles
+- 95-98% reduction in pages processed
+
+**Setup:**
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+</Tab>
+
+<Tab title="Product Catalogs">
+**Scenario:** E-commerce site with price updates
+
+**Benefits:**
+- Skip products with unchanged prices
+- Only scrape new products and price changes
+- Reduce server load
+
+**Setup:**
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+</Tab>
+
+<Tab title="Job Boards">
+**Scenario:** Job listing site with frequent updates
+
+**Benefits:**
+- Skip old/filled positions
+- Focus on new job postings
+- Faster monitoring
+
+**Setup:**
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+</Tab>
+
+<Tab title="Documentation Sites">
+**Scenario:** API documentation with occasional updates
+
+**Benefits:**
+- Only re-scrape updated pages
+- Detect documentation changes
+- Efficient monitoring
+
+**Setup:**
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true,
+    "DELTAFETCH_DIR": ".scrapy/deltafetch/docs"
+  }
+}
+```
+</Tab>
+</Tabs>
+
+## Best Practices
+
+<Steps>
+<Step title="Enable for recurring crawls">
+DeltaFetch is most useful for spiders that run repeatedly (daily, weekly, monthly)
+</Step>
+
+<Step title="Not needed for one-time crawls">
+If you only crawl a site once, DeltaFetch provides no benefit
+</Step>
+
+<Step title="Combine with scheduled crawls">
+Use with cron jobs or scheduled tasks:
+```bash
+# crontab entry - daily at 2 AM
+0 2 * * * cd /path/to/scrapai && ./scrapai crawl myspider --project proj
+```
+</Step>
+
+<Step title="Monitor storage growth">
+Periodically check and clean old hash databases
+</Step>
+
+<Step title="Test reset behavior">
+Use `DELTAFETCH_RESET: true` to test full re-crawl behavior
+</Step>
+</Steps>
+
+## Performance Metrics
+
+**Example: News site with 5000 articles**
+
+| Crawl | Articles Scraped | Articles Skipped | Time Saved |
+|-------|------------------|------------------|------------|
+| First | 5000 | 0 | - |
+| Day 2 | 50 | 4950 | 99% |
+| Day 3 | 75 | 4925 | 98.5% |
+| Week 2 | 200 | 4800 | 96% |
+
+**Typical efficiency gains:**
+- Daily updates: 95-99% reduction in pages processed
+- Weekly updates: 90-95% reduction
+- Monthly updates: 80-90% reduction
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Checkpoint Resume" icon="save" href="/guides/checkpoint-resume">
+Pause and resume long crawls
+</Card>
+<Card title="Queue Processing" icon="list" href="/guides/queue-processing">
+Batch process multiple websites
+</Card>
+<Card title="Cloudflare Bypass" icon="shield" href="/guides/cloudflare-bypass">
+Handle protected sites
+</Card>
+</CardGroup>

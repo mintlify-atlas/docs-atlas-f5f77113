@@ -1,0 +1,326 @@
+---
+title: Cloudflare Bypass
+description: Handle Cloudflare-protected sites with browser verification and cookie caching
+---
+
+Only enable Cloudflare bypass when the site explicitly requires it. Always test WITHOUT `--cloudflare` first.
+
+## Detection Indicators
+
+Your site needs Cloudflare bypass if you see:
+
+<Warning>
+- "Checking your browser" or "Just a moment" messages
+- 403/503 HTTP errors with Cloudflare branding
+- Challenge pages before content loads
+</Warning>
+
+## Display Requirements
+
+<Note>
+Cloudflare bypass requires a **visible browser** (not headless). Cloudflare detects and blocks headless browsers.
+</Note>
+
+**Platform support:**
+- **Windows:** Uses native display automatically ✓
+- **macOS:** Uses native display automatically ✓
+- **Linux desktop:** Uses native display automatically ✓
+- **Linux servers (VPS without GUI):** Auto-detects missing display and uses **Xvfb** (virtual display) ✓
+
+**Installing Xvfb on Linux servers:**
+
+<CodeGroup>
+```bash Debian/Ubuntu
+sudo apt-get install xvfb
+```
+
+```bash RHEL/CentOS
+sudo yum install xorg-x11-server-Xvfb
+```
+</CodeGroup>
+
+The crawler automatically detects your environment and uses Xvfb when no display is available on Linux.
+
+## Inspector Usage
+
+<Steps>
+<Step title="Start with default HTTP (fast)">
+Works for most sites:
+```bash
+./scrapai inspect https://example.com --project proj
+```
+</Step>
+
+<Step title="Try browser mode if JS-rendered">
+For JavaScript-heavy sites:
+```bash
+./scrapai inspect https://example.com --project proj --browser
+```
+</Step>
+
+<Step title="Use Cloudflare bypass only when blocked">
+For Cloudflare-protected sites:
+```bash
+./scrapai inspect https://example.com --project proj --cloudflare
+```
+</Step>
+</Steps>
+
+<Tip>
+**Smart resource usage:** Start with default HTTP (fast). Escalate to `--browser` if content is JS-rendered. Use `--cloudflare` only when seeing challenge pages or 403/503 errors.
+</Tip>
+
+## Strategies
+
+### Hybrid Mode (Recommended)
+
+Browser verification once per 10 minutes, then fast HTTP with cached cookies. **20-100x faster** than browser-only mode.
+
+<Note>
+Do NOT set `CONCURRENT_REQUESTS` - uses Scrapy default of 16 for optimal performance.
+</Note>
+
+```json spider.json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "hybrid",
+    "CLOUDFLARE_COOKIE_REFRESH_THRESHOLD": 600,
+    "CF_MAX_RETRIES": 5,
+    "CF_RETRY_INTERVAL": 1,
+    "CF_POST_DELAY": 5
+  }
+}
+```
+
+**How it works:**
+1. Browser verifies Cloudflare once and caches cookies
+2. Subsequent requests use fast HTTP with cached cookies
+3. Auto-refreshes cookies every 10 minutes
+4. Falls back to browser if cookies become invalid
+
+### Browser-Only Mode (Legacy)
+
+<Warning>
+Only use if hybrid mode fails. Browser for every request. **Much slower.**
+
+Requires `CONCURRENT_REQUESTS: 1` to prevent browser conflicts.
+</Warning>
+
+```json spider.json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "browser_only",
+    "CONCURRENT_REQUESTS": 1
+  }
+}
+```
+
+## Settings Reference
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `CLOUDFLARE_ENABLED` | false | Enable CF bypass |
+| `CLOUDFLARE_STRATEGY` | "hybrid" | "hybrid" or "browser_only" |
+| `CLOUDFLARE_COOKIE_REFRESH_THRESHOLD` | 600 | Seconds before cookie refresh |
+| `CF_MAX_RETRIES` | 5 | Max verification attempts |
+| `CF_RETRY_INTERVAL` | 1 | Seconds between retries |
+| `CF_POST_DELAY` | 5 | Seconds after successful verification |
+| `CF_WAIT_SELECTOR` | — | CSS selector to wait for before extracting |
+| `CF_WAIT_TIMEOUT` | 10 | Max seconds to wait for selector |
+| `CF_PAGE_TIMEOUT` | 120000 | Page navigation timeout (ms) |
+| `CONCURRENT_REQUESTS` | — | Must be 1 for browser-only mode |
+
+## Complete Spider Example
+
+```json spider.json
+{
+  "name": "mysite",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://www.example.com/articles"],
+  "rules": [
+    {
+      "allow": ["/article/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false,
+      "priority": 100
+    },
+    {
+      "allow": ["/articles/"],
+      "callback": null,
+      "follow": true,
+      "priority": 50
+    }
+  ],
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "hybrid",
+    "CLOUDFLARE_COOKIE_REFRESH_THRESHOLD": 600,
+    "CF_MAX_RETRIES": 5,
+    "CF_RETRY_INTERVAL": 1,
+    "CF_POST_DELAY": 5,
+    "CF_WAIT_SELECTOR": "h1.title-med-1",
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+## Timeouts & Hang Prevention
+
+<Note>
+**Browser operation timeout:** 300 seconds (5 minutes) per operation to prevent infinite hangs.
+</Note>
+
+If a browser operation exceeds 300 seconds, the crawl fails with a `TimeoutError` instead of hanging forever. This protects against:
+- Browser subprocess hangs
+- Network stalls
+- Infinite CF challenge loops
+- Cross-thread asyncio deadlocks
+
+**Typical operation times:**
+- CF verification: 10-60 seconds
+- Page load: 5-30 seconds
+- Cookie refresh: 10-30 seconds
+
+<Warning>
+If you consistently hit the 300s timeout, investigate:
+- Network connectivity issues
+- Site blocking your IP/region
+- Browser/Chrome subprocess problems
+- System resource constraints (CPU/memory)
+</Warning>
+
+## Troubleshooting
+
+### Crawl Hangs at "Getting/refreshing CF cookies"
+
+**Symptoms:** Browser opens but never navigates. Logs show "Getting/refreshing CF cookies" but no progress.
+
+**Possible causes:**
+1. Asyncio event loop mismatch (fixed in latest version)
+2. Browser subprocess issues - Chrome/nodriver incompatible with thread-based event loop
+3. Display/X11 issues on Linux servers
+4. Network/firewall blocking browser traffic
+
+**Solutions:**
+<Steps>
+<Step title="Update to latest version">
+Ensure you're on latest version with timeout fix
+</Step>
+
+<Step title="Verify browser opens">
+Check browser actually opens (not headless failing)
+</Step>
+
+<Step title="Check display (Linux servers)">
+Verify Xvfb is installed: `sudo apt-get install xvfb`
+</Step>
+
+<Step title="Test with inspector">
+Test with `--cloudflare` flag on inspector first:
+```bash
+./scrapai inspect https://example.com --project proj --cloudflare
+```
+</Step>
+
+<Step title="Check system resources">
+Verify CPU, memory, and disk space availability
+</Step>
+</Steps>
+
+### Works on One Machine But Not Another
+
+**Environmental factors affecting browser subprocesses:**
+- Python/asyncio version differences
+- Display environment (X11 vs Wayland vs headless)
+- Chrome/Chromium version and availability
+- System resources and timing (race conditions)
+- Network conditions (DNS, latency, firewalls)
+- Security software interfering with browser
+
+**Debugging steps:**
+<Steps>
+<Step title="Test inspector on both machines">
+```bash
+./scrapai inspect https://example.com --project proj --cloudflare
+```
+</Step>
+
+<Step title="Check Chrome installation">
+```bash
+google-chrome --version
+```
+</Step>
+
+<Step title="Verify display (Linux)">
+```bash
+echo $DISPLAY  # Should show :99 with Xvfb
+```
+</Step>
+
+<Step title="Review logs for errors">
+Check logs for specific error messages
+</Step>
+
+<Step title="Try different strategy">
+Switch between hybrid and browser_only modes
+</Step>
+</Steps>
+
+### Diagnosing via Logs
+
+**Hybrid mode indicators:**
+
+<CodeGroup>
+```log Success
+Cached N cookies (cf_clearance: ...)
+// Cookies working properly
+```
+
+```log Warning
+Blocked despite cookies - re-verifying CF
+// Cookies expired/blocked, will auto-retry
+```
+
+```log Error
+Still blocked - falling back to browser
+// Hybrid failing, may need browser-only
+```
+</CodeGroup>
+
+**Browser-only mode indicators:**
+
+```log
+Cloudflare verified successfully
+Opened persistent browser
+Closed browser
+// Normal lifecycle
+```
+
+### Title Contamination
+
+<Tip>
+If extracted titles show wrong text (e.g., "Related Articles" instead of actual title), set `CF_WAIT_SELECTOR` to the main title element.
+</Tip>
+
+```json
+{
+  "settings": {
+    "CF_WAIT_SELECTOR": "h1.article-title"
+  }
+}
+```
+
+This captures HTML before related content loads, preventing contamination.
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Proxy Escalation" icon="network-wired" href="/guides/proxy-escalation">
+Combine with smart proxy usage
+</Card>
+<Card title="Checkpoint Resume" icon="save" href="/guides/checkpoint-resume">
+Pause and resume long crawls
+</Card>
+</CardGroup>

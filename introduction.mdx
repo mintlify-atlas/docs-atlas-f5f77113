@@ -1,0 +1,155 @@
+---
+title: "Introduction"
+description: "ScrapAI is a CLI where you describe what you want to scrape in plain English, an AI agent builds the scraper, and Scrapy runs it."
+---
+
+<img src="/images/hero.svg" alt="ScrapAI CLI" />
+
+## AI-Powered Web Scraping at Scale
+
+ScrapAI transforms web scraping from a code-heavy engineering task into a conversational workflow. Describe what you want to scrape in plain English, and an AI agent analyzes the site, writes extraction rules, and deploys a production-ready scraper—all in minutes.
+
+```bash
+You: "Add https://bbc.co.uk to my news project"
+```
+
+Minutes later you have a tested, production-ready scraper stored in a database. No Python, no CSS selectors, no Scrapy knowledge. The AI agent analyzes the site, writes extraction rules, verifies quality, and saves a reusable config. Run it tomorrow or next year. Same command, no AI costs.
+
+<Note>
+Built by [DiscourseLab](https://www.discourselab.ai/) and used in production across 500+ websites.
+</Note>
+
+## Why ScrapAI?
+
+<CardGroup cols={2}>
+  <Card title="AI Once, Deterministic Forever" icon="brain">
+    Use AI at build time to analyze sites and write extraction rules. Then run those rules with Scrapy—no AI in the loop, no per-page costs. The cost is per **website**, not per page.
+  </Card>
+  
+  <Card title="Self-Hosted, No Vendor Lock-In" icon="server">
+    You clone the repo, you own everything. No SaaS, no subscription, no per-page billing. Your scrapers are JSON configs in a database. Export them, share them, move them between projects.
+  </Card>
+  
+  <Card title="Database-First Management" icon="database">
+    Spiders are rows in a database, not Python files on disk. Need to change `DOWNLOAD_DELAY` across your whole fleet? One SQL query instead of editing 100 files.
+  </Card>
+  
+  <Card title="Production-Ready from Day One" icon="shield-check">
+    Cloudflare bypass with cookie caching, smart proxy escalation, checkpoint pause/resume, incremental crawling, and targeted extraction for articles, products, jobs, and more.
+  </Card>
+</CardGroup>
+
+## Who This Is For
+
+<AccordionGroup>
+  <Accordion title="Good fit">
+    - **Teams that need to scrape many websites** and don't want to write individual scrapers
+    - **Non-technical users** who can describe what they want in plain English
+    - **Organizations where scraping is a means to an end**, not the core competency
+    - **Anyone building datasets** from public web content (news, research, documentation)
+  </Accordion>
+  
+  <Accordion title="Not a good fit">
+    - Single-site scraping where you want fine-grained control (use [Scrapling](https://github.com/D4Vinci/Scrapling) or [crawl4ai](https://github.com/unclecode/crawl4ai))
+    - Sites with hard CAPTCHAs (we handle Cloudflare challenges, not Capsolver-level CAPTCHAs)
+    - Login-required or paywall content (not supported yet)
+  </Accordion>
+</AccordionGroup>
+
+## How It Works
+
+ScrapAI is an orchestration layer on top of Scrapy. Instead of writing a Python spider file per website, an AI agent generates a JSON config and stores it in a database. A single generic spider (`DatabaseSpider`) loads any config at runtime.
+
+```
+You (plain English) → AI Agent → JSON config → Database → Scrapy crawl
+                       (once)                               (forever)
+```
+
+<Tip>
+**Why JSON configs instead of AI-generated Python?** An agent that writes and executes Python has the same power as an unsupervised developer. If it hallucinates, gets prompt-injected by a malicious page, or loses context, it can do real damage. An agent that writes JSON configs produces data, not code.
+</Tip>
+
+Here's what an AI-generated spider config looks like:
+
+```json
+{
+  "name": "bbc_co_uk",
+  "allowed_domains": ["bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/news"],
+  "rules": [
+    {
+      "allow": ["/news/articles/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false
+    },
+    {
+      "allow": ["/news/?$"],
+      "follow": true
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+Adding a new website means adding a new row to the database.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Cloudflare Bypass" icon="cloud">
+    Solves the challenge once, extracts session cookies, then switches to fast HTTP requests. On a 1,000-page crawl: **8 minutes vs 2+ hours**.
+  </Card>
+  
+  <Card title="Smart Proxy Escalation" icon="network-wired">
+    Starts with direct connections. If a site blocks you (403/429), retries through a datacenter proxy and remembers that domain for next time.
+  </Card>
+  
+  <Card title="Checkpoint Pause/Resume" icon="pause">
+    Press Ctrl+C to pause a long crawl, run the same command to resume. Built on Scrapy's native JOBDIR. No progress lost.
+  </Card>
+  
+  <Card title="Incremental Crawling" icon="arrows-rotate">
+    DeltaFetch skips already-scraped URLs, reducing bandwidth by 80-90% on routine re-crawls.
+  </Card>
+  
+  <Card title="Targeted Extraction" icon="crosshairs">
+    Articles get clean structured fields (title, content, author, date). Non-article content (products, jobs, listings) gets custom callbacks with field-level selectors.
+  </Card>
+  
+  <Card title="Queue & Batch Processing" icon="list-check">
+    Bulk-add hundreds of URLs into a database-backed queue with priorities, status tracking, and retry on failure. Process them in parallel batches.
+  </Card>
+</CardGroup>
+
+## What's Under the Hood
+
+ScrapAI is glue. These projects do the heavy lifting:
+
+- **[Scrapy](https://scrapy.org/)** for crawling. Everything runs through Scrapy; we just load configs from a database instead of Python files.
+- **[newspaper4k](https://github.com/AndyTheFactory/newspaper4k)** and **[trafilatura](https://github.com/adbar/trafilatura)** for article extraction (title, content, author, date).
+- **[nodriver](https://github.com/ultrafunkamsterdam/nodriver)** for Cloudflare bypass via browser automation.
+- **[Playwright](https://playwright.dev/)** for JavaScript rendering.
+- **[SQLAlchemy](https://www.sqlalchemy.org/)** and **[Alembic](https://alembic.sqlalchemy.org/)** for the database layer and migrations.
+
+## Get Started
+
+<CardGroup cols={3}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install ScrapAI CLI on Linux, macOS, or Windows
+  </Card>
+  
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build your first scraper in 5 minutes
+  </Card>
+  
+  <Card title="CLI Reference" icon="terminal" href="/cli-reference">
+    Complete command reference
+  </Card>
+</CardGroup>
+
+<Card title="View on GitHub" icon="github" href="https://github.com/discourselab/scrapai-cli">
+  Star the repository if you find it useful
+</Card>

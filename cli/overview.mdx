@@ -1,0 +1,178 @@
+---
+title: "CLI Overview"
+description: "Complete command-line interface reference for ScrapAI"
+---
+
+The ScrapAI CLI provides a comprehensive interface for building, managing, and running AI-powered web scrapers. All commands interact with a database-first architecture where spiders are stored as JSON configurations.
+
+## Architecture
+
+ScrapAI uses a project-based organization model:
+
+- **Projects**: Logical groupings of spiders (e.g., `news`, `ecommerce`, `research`)
+- **Spiders**: JSON configurations stored in the database
+- **Queue**: Database-backed queue for batch processing
+- **Data**: Test mode saves to database, production mode exports to JSONL files
+
+## Entry Point
+
+The `scrapai` script automatically activates the virtual environment and delegates to the CLI:
+
+```bash
+# Linux/macOS
+./scrapai <command> [options]
+
+# Windows
+scrapai <command> [options]
+```
+
+<Note>
+All commands run through the `scrapai` wrapper, which handles virtual environment activation automatically.
+</Note>
+
+## Command Categories
+
+<CardGroup cols={2}>
+
+<Card title="Setup & Verification" icon="gear" href="/cli/setup">
+  Install dependencies, configure environment, verify setup
+</Card>
+
+<Card title="Spider Management" icon="spider" href="/cli/spiders">
+  List, import, delete, and manage spider configurations
+</Card>
+
+<Card title="Crawling" icon="globe" href="/cli/crawl">
+  Run spiders in test or production mode with checkpoint support
+</Card>
+
+<Card title="Queue Management" icon="list" href="/cli/queue">
+  Add URLs, bulk import, process items in parallel batches
+</Card>
+
+<Card title="Data Operations" icon="database" href="/cli/data">
+  View scraped items, export to CSV/JSON/Parquet
+</Card>
+
+<Card title="Inspection" icon="magnifying-glass" href="/cli/inspect">
+  Analyze websites for scraper development
+</Card>
+
+<Card title="Database" icon="server" href="/cli/database">
+  Migrations, queries, statistics, data transfer
+</Card>
+
+<Card title="Projects" icon="folder" href="/cli/projects">
+  List and manage project configurations
+</Card>
+
+</CardGroup>
+
+## Global Conventions
+
+### Project Names
+
+Most commands require a `--project` flag to specify the project context:
+
+```bash
+./scrapai spiders list --project news
+./scrapai crawl bbc_co_uk --project news
+```
+
+<Tip>
+Default project name is `default` if not specified, but it's recommended to always use explicit project names for clarity.
+</Tip>
+
+### Output Modes
+
+**Test Mode** (with `--limit`):
+- Saves scraped items to database
+- Limited number of items
+- Use `show` command to view results
+- No HTML content stored
+
+**Production Mode** (no limit):
+- Exports to timestamped JSONL files in `data/<project>/<spider>/crawls/`
+- Includes full HTML content
+- Enables checkpoint pause/resume
+- Database writes disabled for performance
+
+### File Paths
+
+All data is stored under the `DATA_DIR` configured in `.env` (default: `./data`):
+
+```
+data/
+├── <project>/
+│   ├── <spider>/
+│   │   ├── crawls/         # Production JSONL exports
+│   │   ├── exports/        # Manual exports (CSV/JSON/Parquet)
+│   │   └── checkpoint/     # Pause/resume state
+```
+
+## Common Workflows
+
+### Quick Test
+
+Test a spider on 5-10 URLs to verify extraction:
+
+```bash
+./scrapai crawl myspider --project myproject --limit 5
+./scrapai show myspider --project myproject
+```
+
+### Production Crawl
+
+Run a full crawl with checkpoint support:
+
+```bash
+./scrapai crawl myspider --project myproject
+# Press Ctrl+C to pause
+# Run same command to resume
+```
+
+### Batch Processing
+
+Add multiple websites to queue and process:
+
+```bash
+./scrapai queue bulk urls.csv --project myproject
+./scrapai queue list --project myproject
+./scrapai queue next --project myproject  # Claim next item
+```
+
+### Export Data
+
+Export scraped data in various formats:
+
+```bash
+./scrapai export myspider --project myproject --format csv
+./scrapai export myspider --project myproject --format parquet
+```
+
+## Platform Support
+
+- **Linux**: Full support including headless Cloudflare bypass with xvfb
+- **macOS**: Full support
+- **Windows**: Full support (use `scrapai.bat` or `scrapai` directly)
+
+## Database Support
+
+- **SQLite**: Default, zero configuration
+- **PostgreSQL**: Production deployments, atomic queue operations
+
+Switch by updating `DATABASE_URL` in `.env` and running migrations.
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Setup Commands" icon="rocket" href="/cli/setup">
+  Install ScrapAI and verify your environment
+</Card>
+
+<Card title="Spider Management" icon="spider" href="/cli/spiders">
+  Learn how to import and manage spider configurations
+</Card>
+
+</CardGroup>

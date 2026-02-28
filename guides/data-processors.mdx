@@ -1,0 +1,745 @@
+---
+title: Data Processors
+description: Transform extracted values with 8 powerful processors for cleaning, casting, and formatting
+---
+
+Processors transform extracted values (strip whitespace, cast types, apply regex, etc.). They run sequentially in the order specified.
+
+## Available Processors
+
+<CardGroup cols={2}>
+<Card title="strip" icon="scissors">
+Remove leading and trailing whitespace
+</Card>
+<Card title="replace" icon="repeat">
+Replace substring in strings
+</Card>
+<Card title="regex" icon="search">
+Extract substring using pattern
+</Card>
+<Card title="cast" icon="wand-magic-sparkles">
+Convert to specified type
+</Card>
+<Card title="join" icon="link">
+Join list values to string
+</Card>
+<Card title="default" icon="circle-check">
+Return fallback value if empty
+</Card>
+<Card title="lowercase" icon="text-size">
+Convert strings to lowercase
+</Card>
+<Card title="parse_datetime" icon="calendar">
+Parse datetime to ISO format
+</Card>
+</CardGroup>
+
+## Processor Reference
+
+### 1. strip
+
+Remove leading and trailing whitespace from strings.
+
+**Parameters:** None
+
+**Example:**
+```json
+{
+  "css": "h1::text",
+  "processors": [{"type": "strip"}]
+}
+```
+
+**Transformation:**
+```
+"  Hello World  " → "Hello World"
+```
+
+**Works on:** Strings and lists of strings
+
+---
+
+### 2. replace
+
+Replace substring in strings.
+
+**Parameters:**
+- `old` (required): Substring to replace
+- `new` (required): Replacement string
+
+**Example:**
+```json
+{
+  "css": "span.price::text",
+  "processors": [
+    {"type": "replace", "old": "$", "new": ""},
+    {"type": "replace", "old": ",", "new": ""}
+  ]
+}
+```
+
+**Transformation:**
+```
+"$1,299.99" → "1299.99"
+```
+
+**Works on:** Strings and lists of strings
+
+---
+
+### 3. regex
+
+Extract substring using regular expression pattern.
+
+**Parameters:**
+- `pattern` (required): Regex pattern to match
+- `group` (optional): Capture group to extract (default: 1)
+
+**Example:**
+```json
+{
+  "css": "span::text",
+  "processors": [
+    {"type": "regex", "pattern": "Price: \\$([\\d.]+)"}
+  ]
+}
+```
+
+**Transformation:**
+```
+"Price: $99.99" → "99.99"
+```
+
+**Multiple groups:**
+```json
+{"type": "regex", "pattern": "(\\d+) items", "group": 1}
+```
+
+**Returns original value if no match.**
+
+**Works on:** Strings only
+
+---
+
+### 4. cast
+
+Convert value to specified type.
+
+**Parameters:**
+- `to` (required): Target type - `"int"`, `"float"`, `"bool"`, or `"str"`
+
+**Example:**
+```json
+{
+  "css": "span.rating::attr(data-rating)",
+  "processors": [
+    {"type": "cast", "to": "float"}
+  ]
+}
+```
+
+**Transformations:**
+```
+"4.5" → 4.5 (float)
+"42" → 42 (int)
+"true" → True (bool)
+```
+
+**Boolean conversion:**
+- `true`, `1`, `yes`, `on` → True
+- Everything else → False
+
+**Returns None if conversion fails.**
+
+**Works on:** Any type
+
+---
+
+### 5. join
+
+Join list values into a single string.
+
+**Parameters:**
+- `separator` (optional): String to join with (default: `" "`)
+
+**Example:**
+```json
+{
+  "css": "li.feature::text",
+  "get_all": true,
+  "processors": [
+    {"type": "join", "separator": ", "}
+  ]
+}
+```
+
+**Transformation:**
+```
+["WiFi", "Bluetooth", "GPS"] → "WiFi, Bluetooth, GPS"
+```
+
+**Filters out None values automatically.**
+
+**Works on:** Lists only
+
+---
+
+### 6. default
+
+Return default value if input is None, empty string, or empty list.
+
+**Parameters:**
+- `default` (required): Fallback value
+
+**Example:**
+```json
+{
+  "css": "span.optional::text",
+  "processors": [
+    {"type": "default", "default": "N/A"}
+  ]
+}
+```
+
+**Transformations:**
+```
+None → "N/A"
+"" → "N/A"
+[] → "N/A"
+"actual value" → "actual value"
+```
+
+**Works on:** Any type
+
+---
+
+### 7. lowercase
+
+Convert strings to lowercase.
+
+**Parameters:** None
+
+**Example:**
+```json
+{
+  "css": "span.status::text",
+  "processors": [
+    {"type": "strip"},
+    {"type": "lowercase"}
+  ]
+}
+```
+
+**Transformation:**
+```
+"IN STOCK" → "in stock"
+```
+
+**Works on:** Strings and lists of strings
+
+---
+
+### 8. parse_datetime
+
+Parse datetime string into ISO format.
+
+**Parameters:**
+- `format` (optional): strptime format string (if None, uses dateutil parser for flexible parsing)
+
+**Example with format:**
+```json
+{
+  "css": "time.date::attr(datetime)",
+  "processors": [
+    {"type": "parse_datetime", "format": "%Y-%m-%d"}
+  ]
+}
+```
+
+**Example without format (auto-detect):**
+```json
+{
+  "css": "span.date::text",
+  "processors": [
+    {"type": "parse_datetime"}
+  ]
+}
+```
+
+**Transformations:**
+```
+"2024-02-24" → "2024-02-24T00:00:00" (ISO format)
+"February 24, 2024" → "2024-02-24T00:00:00"
+"24/02/2024" → "2024-02-24T00:00:00" (auto-detected)
+```
+
+**Stored as ISO string in database (automatically serialized).**
+
+**Returns None if parsing fails.**
+
+**Works on:** Strings only
+
+---
+
+## Processor Chaining
+
+Processors run sequentially. Output of one becomes input to the next.
+
+### Example 1: Clean and Convert Price
+
+```json
+{
+  "css": "span.price::text",
+  "processors": [
+    {"type": "strip"},                           // "  $99.99  " → "$99.99"
+    {"type": "replace", "old": "$", "new": ""},  // "$99.99" → "99.99"
+    {"type": "cast", "to": "float"}              // "99.99" → 99.99
+  ]
+}
+```
+
+### Example 2: Extract Rating Number
+
+```json
+{
+  "css": "div.rating::text",
+  "processors": [
+    {"type": "strip"},                           // "  Rating: 4.5 stars  " → "Rating: 4.5 stars"
+    {"type": "regex", "pattern": "([\\d.]+)"},   // "Rating: 4.5 stars" → "4.5"
+    {"type": "cast", "to": "float"}              // "4.5" → 4.5
+  ]
+}
+```
+
+### Example 3: Normalize Text
+
+```json
+{
+  "css": "span.status::text",
+  "processors": [
+    {"type": "strip"},
+    {"type": "lowercase"},
+    {"type": "replace", "old": " ", "new": "_"}
+  ]
+}
+```
+**Input:** `"  In Stock  "`  
+**Output:** `"in_stock"`
+
+### Example 4: Handle Missing Values
+
+```json
+{
+  "css": "span.optional-field::text",
+  "processors": [
+    {"type": "strip"},
+    {"type": "default", "default": "Not specified"}
+  ]
+}
+```
+
+## Common Patterns
+
+### Extracting Currency Values
+
+```json
+{
+  "price": {
+    "css": "span.price::text",
+    "processors": [
+      {"type": "strip"},
+      {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+      {"type": "replace", "old": ",", "new": ""},
+      {"type": "cast", "to": "float"}
+    ]
+  }
+}
+```
+**Handles:** `"$1,299.99"`, `"Price: $99"`, `"  $42.50  "`
+
+### Extracting Numbers from Text
+
+```json
+{
+  "quantity": {
+    "css": "div.quantity::text",
+    "processors": [
+      {"type": "regex", "pattern": "(\\d+)"},
+      {"type": "cast", "to": "int"}
+    ]
+  }
+}
+```
+**Handles:** `"23 items"`, `"Quantity: 5"`, `"42"`
+
+### Boolean Fields
+
+```json
+{
+  "in_stock": {
+    "css": "span.availability::text",
+    "processors": [
+      {"type": "lowercase"},
+      {"type": "regex", "pattern": "(in stock|available)"},
+      {"type": "cast", "to": "bool"}
+    ]
+  }
+}
+```
+**Returns:** `True` if "in stock" or "available", else `False`
+
+### Date Fields
+
+```json
+{
+  "published_date": {
+    "css": "time::attr(datetime)",
+    "processors": [
+      {"type": "parse_datetime"}
+    ]
+  }
+}
+```
+**Auto-detects format, stores as ISO string.**
+
+### Lists to Comma-Separated String
+
+```json
+{
+  "tags": {
+    "css": "li.tag::text",
+    "get_all": true,
+    "processors": [
+      {"type": "join", "separator": ", "}
+    ]
+  }
+}
+```
+**Input:** `["Python", "Web Scraping", "Automation"]`  
+**Output:** `"Python, Web Scraping, Automation"`
+
+## Complete Examples
+
+### E-commerce Product
+
+```json
+{
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {
+          "css": "h1.product-name::text",
+          "processors": [{"type": "strip"}]
+        },
+        "price": {
+          "css": "span.price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "rating": {
+          "css": "div.rating::attr(data-rating)",
+          "processors": [{"type": "cast", "to": "float"}]
+        },
+        "in_stock": {
+          "css": "span.availability::text",
+          "processors": [
+            {"type": "lowercase"},
+            {"type": "regex", "pattern": "(in stock|available)"},
+            {"type": "cast", "to": "bool"}
+          ]
+        },
+        "features": {
+          "css": "li.feature::text",
+          "get_all": true,
+          "processors": [{"type": "join", "separator": ", "}]
+        }
+      }
+    }
+  }
+}
+```
+
+### Job Listing
+
+```json
+{
+  "callbacks": {
+    "parse_job": {
+      "extract": {
+        "title": {
+          "css": "h1.job-title::text",
+          "processors": [{"type": "strip"}]
+        },
+        "salary_min": {
+          "css": "span.salary-min::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "replace", "old": "$", "new": ""},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "int"}
+          ]
+        },
+        "salary_max": {
+          "css": "span.salary-max::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "replace", "old": "$", "new": ""},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "int"}
+          ]
+        },
+        "posted_date": {
+          "css": "time.posted-date::attr(datetime)",
+          "processors": [{"type": "parse_datetime"}]
+        },
+        "remote": {
+          "css": "span.job-type::text",
+          "processors": [
+            {"type": "lowercase"},
+            {"type": "regex", "pattern": "(remote|work from home)"},
+            {"type": "cast", "to": "bool"}
+          ]
+        },
+        "skills": {
+          "css": "span.skill::text",
+          "get_all": true,
+          "processors": [{"type": "join", "separator": ", "}]
+        }
+      }
+    }
+  }
+}
+```
+
+### Real Estate Listing
+
+```json
+{
+  "callbacks": {
+    "parse_property": {
+      "extract": {
+        "address": {
+          "css": "h1.property-address::text",
+          "processors": [{"type": "strip"}]
+        },
+        "price": {
+          "css": "span.property-price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "bedrooms": {
+          "css": "span.bedrooms::text",
+          "processors": [
+            {"type": "regex", "pattern": "(\\d+)"},
+            {"type": "cast", "to": "int"}
+          ]
+        },
+        "bathrooms": {
+          "css": "span.bathrooms::text",
+          "processors": [
+            {"type": "regex", "pattern": "([\\d.]+)"},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "sqft": {
+          "css": "span.square-feet::text",
+          "processors": [
+            {"type": "regex", "pattern": "([\\d,]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "int"}
+          ]
+        },
+        "amenities": {
+          "css": "li.amenity::text",
+          "get_all": true,
+          "processors": [{"type": "join", "separator": ", "}]
+        }
+      }
+    }
+  }
+}
+```
+
+## Error Handling
+
+Processors handle errors gracefully:
+
+<Tabs>
+<Tab title="Graceful Failures">
+- **strip, replace, lowercase, join:** Return original value if not applicable type
+- **regex:** Returns original value if pattern doesn't match
+- **cast:** Returns None if conversion fails
+- **parse_datetime:** Returns None if parsing fails
+- **Unknown processor type:** Skipped, logs warning
+</Tab>
+
+<Tab title="Chain Behavior">
+If a processor fails mid-chain, subsequent processors receive the last valid value or None.
+
+**Example:**
+```json
+[
+  {"type": "strip"},        // "  abc  " → "abc"
+  {"type": "cast", "to": "int"},  // "abc" → None (conversion fails)
+  {"type": "default", "default": 0}  // None → 0
+]
+```
+**Final output:** `0`
+</Tab>
+</Tabs>
+
+## Best Practices
+
+<Steps>
+<Step title="Always strip text fields">
+Prevents whitespace issues:
+```json
+{"processors": [{"type": "strip"}]}
+```
+</Step>
+
+<Step title="Use regex before cast">
+Extract numeric part first, then convert type:
+```json
+[
+  {"type": "regex", "pattern": "([\\d.]+)"},
+  {"type": "cast", "to": "float"}
+]
+```
+</Step>
+
+<Step title="Chain replace for complex cleaning">
+Multiple replace processors handle different cases:
+```json
+[
+  {"type": "replace", "old": "$", "new": ""},
+  {"type": "replace", "old": ",", "new": ""}
+]
+```
+</Step>
+
+<Step title="Default at the end">
+Apply fallback after all transformations:
+```json
+[
+  {"type": "strip"},
+  {"type": "cast", "to": "float"},
+  {"type": "default", "default": 0.0}
+]
+```
+</Step>
+
+<Step title="Test selectors first">
+Use analyze command before adding processors:
+```bash
+./scrapai analyze --test "selector"
+```
+</Step>
+
+<Step title="Validate processor output">
+Run test crawl and check with show command:
+```bash
+./scrapai crawl spider --limit 5 --project proj
+./scrapai show 1 --project proj
+```
+</Step>
+</Steps>
+
+## Troubleshooting
+
+### Processor Returns None
+
+<Steps>
+<Step title="Check processor type">
+Verify processor name is correct (typo?)
+</Step>
+
+<Step title="Validate input type">
+Some processors only work on specific types:
+- `regex`: strings only
+- `join`: lists only
+- `parse_datetime`: strings only
+</Step>
+
+<Step title="Test without processors">
+Remove processors temporarily to see raw extracted value
+</Step>
+
+<Step title="Check logs">
+Look for processor warnings in crawl logs
+</Step>
+</Steps>
+
+### Wrong Output Type
+
+<Tip>
+Add `cast` processor at the end:
+```json
+{"processors": [{"type": "cast", "to": "float"}]}
+```
+</Tip>
+
+### Regex Not Matching
+
+<Steps>
+<Step title="Test pattern separately">
+Use online regex tester (regex101.com)
+</Step>
+
+<Step title="Check escaping">
+Double backslashes in JSON:
+```json
+{"pattern": "\\$([\\d.]+)"}
+```
+</Step>
+
+<Step title="Add default fallback">
+```json
+[
+  {"type": "regex", "pattern": "([\\d.]+)"},
+  {"type": "default", "default": null}
+]
+```
+</Step>
+</Steps>
+
+### Date Parsing Fails
+
+<Steps>
+<Step title="Try without format">
+Let dateutil auto-detect:
+```json
+{"type": "parse_datetime"}
+```
+</Step>
+
+<Step title="Specify exact format">
+If auto-detect fails:
+```json
+{"type": "parse_datetime", "format": "%Y-%m-%d"}
+```
+</Step>
+
+<Step title="Check date format">
+View raw extracted value to understand format
+</Step>
+</Steps>
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Custom Callbacks" icon="code" href="/guides/custom-callbacks">
+Extract structured data with callbacks
+</Card>
+<Card title="Extractors" icon="magnifying-glass" href="/guides/extractors">
+Content extraction strategies
+</Card>
+</CardGroup>

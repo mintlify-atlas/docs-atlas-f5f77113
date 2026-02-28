@@ -1,0 +1,495 @@
+---
+title: Content Extractors
+description: Configure extraction strategies for different content types and rendering methods
+---
+
+Test generic extractors (newspaper, trafilatura) first. Only use custom selectors if they fail.
+
+## Discovery Workflow
+
+<Steps>
+<Step title="Inspect article page">
+```bash
+./scrapai inspect https://example.com/article-url --project proj
+```
+
+Fetches the page and saves HTML for analysis
+</Step>
+
+<Step title="Analyze HTML structure">
+```bash
+./scrapai analyze data/proj/spider/analysis/page.html
+```
+
+Shows:
+- h1/h2 titles with classes
+- Content containers by size
+- Date elements
+- Author elements
+</Step>
+
+<Step title="Test selectors">
+```bash
+./scrapai analyze data/proj/spider/analysis/page.html --test "h1.article-title"
+./scrapai analyze data/proj/spider/analysis/page.html --test "div.article-body"
+```
+
+Validate that selectors extract correct content
+</Step>
+
+<Step title="Search for specific fields">
+```bash
+./scrapai analyze data/proj/spider/analysis/page.html --find "price"
+```
+
+Find elements containing specific text
+</Step>
+</Steps>
+
+## Extractor Order Options
+
+| Config | When to use |
+|--------|-------------|
+| `["newspaper", "trafilatura"]` | Generic extractors work (clean news/blog HTML) |
+| `["custom", "newspaper", "trafilatura"]` | Generic extractors fail; custom selectors needed |
+| `["playwright", "custom"]` | JS-rendered content (SPAs, dynamic loading) |
+| `["playwright", "trafilatura"]` | JS-rendered, generic extractors work after rendering |
+
+<Tip>
+Extractors are tried in order. First successful extraction wins.
+</Tip>
+
+## Generic Extractors
+
+<Tabs>
+<Tab title="Newspaper">
+**Best for:** Clean news articles and blog posts
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+**What it extracts:**
+- Title
+- Author
+- Published date
+- Main content
+- Top image
+- Keywords
+- Summary
+</Tab>
+
+<Tab title="Trafilatura">
+**Best for:** Wide variety of content types
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura", "newspaper"]
+  }
+}
+```
+
+**What it extracts:**
+- Title
+- Author
+- Published date
+- Main content
+- Description
+- Site name
+- Categories
+- Tags
+</Tab>
+</Tabs>
+
+<Note>
+Generic extractors work for ~80% of news/blog sites. Try them first before creating custom selectors.
+</Note>
+
+## Custom Selectors
+
+Use when generic extractors fail to extract content properly.
+
+**Standard fields** (title, author, content, date) → main DB columns.
+**Any other field** → stored in `metadata` JSON column.
+
+### News Article
+
+```json spider.json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom", "trafilatura"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.article-title",
+      "content": "div.article-body",
+      "author": "span.author-name",
+      "date": "time.published-date",
+      "category": "a.category-link",
+      "tags": "div.tags a"
+    }
+  }
+}
+```
+
+### E-commerce Product
+
+```json spider.json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.product-name",
+      "content": "div.product-description",
+      "price": "span.price-value",
+      "rating": "div.star-rating",
+      "stock": "span.availability",
+      "brand": "div.brand-name"
+    }
+  }
+}
+```
+
+### Forum Thread
+
+```json spider.json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.thread-title",
+      "author": "span.username",
+      "content": "div.post-content",
+      "date": "time.post-date",
+      "upvotes": "span.vote-count"
+    }
+  }
+}
+```
+
+## Playwright Extractor
+
+For JavaScript-rendered or dynamically loaded content.
+
+### Basic Configuration
+
+```json spider.json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "PLAYWRIGHT_DELAY": 5
+  }
+}
+```
+
+**Settings:**
+- `PLAYWRIGHT_WAIT_SELECTOR`: CSS selector to wait for (max 30s)
+- `PLAYWRIGHT_DELAY`: Extra seconds after page load
+
+### Infinite Scroll
+
+For single-page sites with dynamic scroll loading:
+
+```json spider.json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".quote",
+    "PLAYWRIGHT_DELAY": 2,
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 10,
+    "SCROLL_DELAY": 2.0
+  }
+}
+```
+
+**Settings:**
+- `INFINITE_SCROLL`: Enable scroll behavior (default: false)
+- `MAX_SCROLLS`: Max scrolls to perform (default: 5)
+- `SCROLL_DELAY`: Seconds between scrolls (default: 1.0)
+
+<Warning>
+Requires `playwright` in `EXTRACTOR_ORDER`. Set `follow: false` in rules to avoid following dynamically loaded links.
+</Warning>
+
+### Complete Playwright Example
+
+```json spa_spider.json
+{
+  "name": "react_app",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/app"],
+  "rules": [
+    {
+      "allow": ["/article/.*"],
+      "callback": "parse_article",
+      "follow": false
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "custom"],
+    "PLAYWRIGHT_WAIT_SELECTOR": "#article-loaded",
+    "PLAYWRIGHT_DELAY": 3,
+    "CUSTOM_SELECTORS": {
+      "title": "h1.title",
+      "content": "div.content",
+      "author": "span.author"
+    }
+  }
+}
+```
+
+## Selector Discovery Principles
+
+<Steps>
+<Step title="Target MAIN content element">
+Not navigation, sidebar, or footer
+</Step>
+
+<Step title="Selector should match ONE element">
+Verify uniqueness on multiple pages
+</Step>
+
+<Step title="Prefer specific classes">
+Use `.article-title` over generic `.title`
+</Step>
+
+<Step title="Test on multiple articles">
+Selector must work across different pages
+</Step>
+
+<Step title="Prefer semantic tags">
+Use `<article>`, `<time>`, `<h1>` when available
+</Step>
+
+<Step title="Validate content length">
+- Content selector should return >500 chars
+- Title should return >10 chars
+</Step>
+
+<Step title="Avoid dynamic class names">
+Skip randomly generated or versioned classes
+</Step>
+</Steps>
+
+<Warning>
+**Common mistakes:**
+- Selector matches multiple elements (gets first, often wrong)
+- Selector targets sidebar/footer instead of main content
+- Overly generic selectors like `div.text`
+- Guessing without testing on actual HTML
+</Warning>
+
+## Identifying JS-Rendered Sites
+
+Signs that `page.html` needs Playwright:
+
+<CodeGroup>
+```html Empty Content
+<body>
+  <div id="app"></div>
+  <script src="bundle.js"></script>
+</body>
+```
+
+```html JS Data Objects
+<script>
+window.__INITIAL_STATE__ = {"articles": [...]};
+</script>
+```
+
+```html Loading Placeholders
+<div class="loading">Loading...</div>
+```
+</CodeGroup>
+
+<Tip>
+If you see minimal/empty content or just `<div id="app"></div>`, use `["playwright", ...]` in `EXTRACTOR_ORDER`.
+</Tip>
+
+## Playwright Wait: Common Selectors
+
+**Article sites:**
+- `.article-content`
+- `#main-content`
+- `article.post`
+- `[data-loaded="true"]`
+
+**Product pages:**
+- `.product-details`
+- `.price-container`
+- `#product-info`
+
+**Social/Forums:**
+- `.post-list`
+- `#posts`
+- `.loaded`
+
+**Generic:**
+- `.content-loaded`
+- `[data-ready]`
+- `.main-container`
+
+## Implementation Details
+
+**Extractor classes (from source: `core/extractors.py`):**
+
+<CardGroup cols={3}>
+<Card title="NewspaperExtractor" icon="newspaper">
+`extractors.py:36-78`
+
+Uses newspaper4k library
+</Card>
+<Card title="TrafilaturaExtractor" icon="code">
+`extractors.py:80-128`
+
+Uses trafilatura library
+</Card>
+<Card title="CustomExtractor" icon="wand-magic-sparkles">
+`extractors.py:131-257`
+
+Uses BeautifulSoup + CSS selectors
+</Card>
+<Card title="SmartExtractor" icon="brain">
+`extractors.py:259-464`
+
+Tries multiple strategies in order
+</Card>
+<Card title="PlaywrightExtractor" icon="browser">
+`extractors.py:398-464`
+
+Async browser rendering
+</Card>
+</CardGroup>
+
+## Troubleshooting
+
+### Generic Extractors Return Empty Content
+
+<Steps>
+<Step title="Check if JS-rendered">
+Inspect HTML for empty `<div id="app"></div>` or minimal content
+</Step>
+
+<Step title="Try Playwright extractor">
+```json
+{"EXTRACTOR_ORDER": ["playwright", "trafilatura"]}
+```
+</Step>
+
+<Step title="Use custom selectors">
+If generic extractors consistently fail:
+```json
+{"EXTRACTOR_ORDER": ["custom", "trafilatura"]}
+```
+</Step>
+</Steps>
+
+### Custom Selector Returns None
+
+<Steps>
+<Step title="Test selector">
+```bash
+./scrapai analyze page.html --test "your-selector"
+```
+</Step>
+
+<Step title="Check selector specificity">
+Ensure selector matches the intended element uniquely
+</Step>
+
+<Step title="Verify HTML structure">
+Element might be in different location than expected
+</Step>
+</Steps>
+
+### Playwright Timeout
+
+<Steps>
+<Step title="Increase wait timeout">
+```json
+{"PLAYWRIGHT_DELAY": 10}
+```
+</Step>
+
+<Step title="Use different wait selector">
+Find selector that appears earlier:
+```json
+{"PLAYWRIGHT_WAIT_SELECTOR": ".loading-complete"}
+```
+</Step>
+
+<Step title="Check selector exists">
+Verify wait selector actually appears in rendered page
+</Step>
+</Steps>
+
+### Content Extracted But Wrong
+
+<Steps>
+<Step title="Verify selector uniqueness">
+May be matching wrong element (sidebar, footer)
+</Step>
+
+<Step title="Make selector more specific">
+Add parent classes or IDs:
+```json
+{"content": "main article.post div.body"}
+```
+</Step>
+
+<Step title="Test on multiple pages">
+Ensure selector works across different articles
+</Step>
+</Steps>
+
+## Best Practices
+
+<Steps>
+<Step title="Start with generic extractors">
+80% success rate for news/blog sites
+```json
+{"EXTRACTOR_ORDER": ["newspaper", "trafilatura"]}
+```
+</Step>
+
+<Step title="Add custom selectors if needed">
+When generic extractors fail:
+```json
+{"EXTRACTOR_ORDER": ["custom", "trafilatura"]}
+```
+</Step>
+
+<Step title="Use Playwright for JS sites">
+Only when content is dynamically rendered:
+```json
+{"EXTRACTOR_ORDER": ["playwright", "trafilatura"]}
+```
+</Step>
+
+<Step title="Test on multiple pages">
+Verify extraction works across different articles
+</Step>
+
+<Step title="Monitor extraction quality">
+Check scraped content with `show` command:
+```bash
+./scrapai show 1 --project proj
+```
+</Step>
+</Steps>
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Custom Callbacks" icon="code" href="/guides/custom-callbacks">
+Extract structured data with callbacks
+</Card>
+<Card title="Data Processors" icon="wand-magic-sparkles" href="/guides/data-processors">
+Transform extracted data
+</Card>
+</CardGroup>

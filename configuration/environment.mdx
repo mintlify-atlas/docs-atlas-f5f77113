@@ -1,0 +1,348 @@
+---
+title: Environment Setup
+description: Configure ScrapAI CLI environment variables and .env file
+---
+
+## Overview
+
+ScrapAI CLI uses environment variables for configuration. All settings are stored in a `.env` file in the project root directory.
+
+## Initial Setup
+
+The `.env` file is automatically created during setup:
+
+```bash
+./scrapai setup
+```
+
+To manually create or modify your configuration:
+
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit `.env` with your preferred settings
+
+3. Restart any running processes to apply changes
+
+<Note>
+The `.env` file is gitignored by default. Never commit credentials to version control.
+</Note>
+
+## Core Environment Variables
+
+### Data Directory
+
+<ParamField path="DATA_DIR" type="string" default="./data">
+  Directory where all scraped data, analysis, and artifacts are stored.
+  
+  **Example:**
+  ```bash
+  DATA_DIR=./data
+  ```
+  
+  All crawl results, spider configurations, and project data are organized under this directory:
+  ```
+  data/
+  ├── project1/
+  │   ├── spider1/
+  │   │   ├── crawls/
+  │   │   ├── analysis/
+  │   │   └── spider.json
+  │   └── spider2/
+  └── project2/
+  ```
+</ParamField>
+
+### Database Configuration
+
+<ParamField path="DATABASE_URL" type="string" default="sqlite:///scrapai.db">
+  Database connection string. Supports SQLite and PostgreSQL.
+  
+  **SQLite (default):**
+  ```bash
+  DATABASE_URL=sqlite:///scrapai.db
+  ```
+  
+  **PostgreSQL:**
+  ```bash
+  DATABASE_URL=postgresql://user:password@localhost:5432/scrapai
+  ```
+  
+  See [Database Configuration](/configuration/database) for details.
+</ParamField>
+
+### Logging
+
+<ParamField path="LOG_LEVEL" type="string" default="info">
+  Logging verbosity level.
+  
+  **Options:**
+  - `debug` - Detailed debugging information
+  - `info` - General informational messages (recommended)
+  - `warning` - Warning messages only
+  - `error` - Error messages only
+  
+  **Example:**
+  ```bash
+  LOG_LEVEL=info
+  ```
+</ParamField>
+
+<ParamField path="LOG_DIR" type="string" default="./logs">
+  Directory for log files.
+  
+  **Example:**
+  ```bash
+  LOG_DIR=./logs
+  ```
+</ParamField>
+
+## Optional Services
+
+### Proxy Configuration
+
+<ParamField path="DATACENTER_PROXY_USERNAME" type="string" required={false}>
+  Username for datacenter proxy authentication.
+  
+  See [Proxy Configuration](/configuration/proxies) for complete setup.
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_PASSWORD" type="string" required={false}>
+  Password for datacenter proxy authentication.
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_HOST" type="string" required={false}>
+  Datacenter proxy server hostname.
+  
+  **Example:** `dc.decodo.com`
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_PORT" type="number" required={false}>
+  Datacenter proxy server port.
+  
+  **Example:** `10000` (rotating IPs)
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_USERNAME" type="string" required={false}>
+  Username for residential proxy authentication.
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_PASSWORD" type="string" required={false}>
+  Password for residential proxy authentication.
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_HOST" type="string" required={false}>
+  Residential proxy server hostname.
+  
+  **Example:** `gate.decodo.com`
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_PORT" type="number" required={false}>
+  Residential proxy server port.
+  
+  **Example:** `7000` (rotating residential IPs)
+</ParamField>
+
+### S3 Storage Configuration
+
+<ParamField path="S3_ACCESS_KEY" type="string" required={false}>
+  S3-compatible storage access key.
+  
+  See [S3 Storage Configuration](/configuration/s3-storage) for complete setup.
+</ParamField>
+
+<ParamField path="S3_SECRET_KEY" type="string" required={false}>
+  S3-compatible storage secret key.
+</ParamField>
+
+<ParamField path="S3_ENDPOINT" type="string" required={false}>
+  S3-compatible storage endpoint URL.
+  
+  **Example:** `https://fsn1.your-objectstorage.com`
+</ParamField>
+
+<ParamField path="S3_BUCKET" type="string" required={false}>
+  S3 bucket name for storing crawl results.
+  
+  **Example:** `scrapai-crawls`
+</ParamField>
+
+### Airflow Configuration
+
+<ParamField path="_AIRFLOW_WWW_USER_USERNAME" type="string" default="admin">
+  Airflow web UI admin username (for docker-compose.airflow.yml).
+</ParamField>
+
+<ParamField path="_AIRFLOW_WWW_USER_PASSWORD" type="string" default="changeme_REPLACE_THIS">
+  Airflow web UI admin password.
+  
+  <Warning>
+  Change the default password before deploying to production.
+  </Warning>
+</ParamField>
+
+<ParamField path="AIRFLOW_UID" type="number" default="501">
+  User ID for Airflow processes in Docker.
+</ParamField>
+
+## Environment File Example
+
+Complete `.env` file with all available options:
+
+```bash
+# ScrapAI Configuration
+
+# Data directory - where all scraped data, analysis, and artifacts are stored
+DATA_DIR=./data
+
+# Database connection string
+# Default: SQLite (no setup required, perfect for getting started)
+# For production/scale: use PostgreSQL
+DATABASE_URL=sqlite:///scrapai.db
+
+# Proxy Configuration (SmartProxyMiddleware)
+# Uncomment and fill in your proxy details to enable
+
+# Datacenter Proxy (recommended for most use cases - faster, cheaper)
+# DATACENTER_PROXY_USERNAME=your_username
+# DATACENTER_PROXY_PASSWORD=your_password
+# DATACENTER_PROXY_HOST=dc.decodo.com
+# DATACENTER_PROXY_PORT=10000  # Port 10000 = rotating IPs (recommended)
+
+# Residential Proxy (used with --proxy-type residential flag)
+# RESIDENTIAL_PROXY_USERNAME=your_username
+# RESIDENTIAL_PROXY_PASSWORD=your_password
+# RESIDENTIAL_PROXY_HOST=gate.decodo.com
+# RESIDENTIAL_PROXY_PORT=7000  # Port 7000 = rotating residential IPs
+
+# Logging
+# LOG_LEVEL=info
+# LOG_DIR=./logs
+
+# Airflow Configuration (for docker-compose.airflow.yml)
+_AIRFLOW_WWW_USER_USERNAME=admin
+_AIRFLOW_WWW_USER_PASSWORD=changeme_REPLACE_THIS
+AIRFLOW_UID=501
+
+# S3-Compatible Object Storage
+# If these are set, scraped data will be automatically uploaded to S3 after crawling
+# S3_ACCESS_KEY=your_access_key_here
+# S3_SECRET_KEY=your_secret_key_here
+# S3_ENDPOINT=https://fsn1.your-objectstorage.com
+# S3_BUCKET=scrapai-crawls
+```
+
+## Loading Configuration
+
+Environment variables are automatically loaded from `.env` when you run any ScrapAI command:
+
+```bash
+./scrapai crawl spider_name --project myproject
+```
+
+The configuration is loaded in this order:
+1. `.env` file in project root
+2. System environment variables (override .env)
+3. Default values (if not set)
+
+<Tip>
+You can override any `.env` setting by exporting an environment variable:
+```bash
+export LOG_LEVEL=debug
+./scrapai crawl spider_name --project myproject
+```
+</Tip>
+
+## Validation
+
+Verify your configuration is loaded correctly:
+
+```bash
+./scrapai verify
+```
+
+This command checks:
+- Python environment
+- Database connectivity
+- Required directories
+- Optional service configuration
+
+## Security Best Practices
+
+<Warning>
+**Never commit `.env` to version control**
+
+The `.env` file contains sensitive credentials and should be gitignored.
+</Warning>
+
+1. **Use `.env.example` as a template**
+   - Commit `.env.example` with placeholder values
+   - Keep actual credentials in `.env` only
+
+2. **Restrict file permissions**
+   ```bash
+   chmod 600 .env
+   ```
+
+3. **Rotate credentials regularly**
+   - Change database passwords
+   - Regenerate API keys
+   - Update proxy credentials
+
+4. **Use different credentials per environment**
+   - Development: `.env`
+   - Production: `.env.production`
+   - Testing: `.env.test`
+
+## Troubleshooting
+
+### Changes not taking effect
+
+1. Verify `.env` file exists in project root:
+   ```bash
+   ls -la .env
+   ```
+
+2. Check file syntax (no spaces around `=`):
+   ```bash
+   # Correct
+   DATA_DIR=./data
+   
+   # Incorrect
+   DATA_DIR = ./data
+   ```
+
+3. Restart any running processes
+
+### Configuration not found
+
+If ScrapAI can't find your `.env` file:
+
+```bash
+# Create from example
+cp .env.example .env
+
+# Run setup
+./scrapai setup
+```
+
+### Permission denied
+
+If you get permission errors:
+
+```bash
+# Fix .env permissions
+chmod 600 .env
+
+# Fix data directory permissions
+chmod 755 data/
+```
+
+## Related Documentation
+
+- [Database Configuration](/configuration/database)
+- [Proxy Configuration](/configuration/proxies)
+- [S3 Storage Configuration](/configuration/s3-storage)
+- [Installation](/getting-started/installation)

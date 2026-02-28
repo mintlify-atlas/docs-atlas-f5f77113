@@ -1,0 +1,254 @@
+---
+title: Newspaper4k Extractor
+description: General-purpose article extraction for news and blogs
+---
+
+The Newspaper4k extractor is a fast, general-purpose content extractor optimized for news articles and blog posts. It automatically identifies article structure without configuration.
+
+## Overview
+
+**Best for:**
+- News websites
+- Blog posts
+- Magazine articles
+- Clean, semantic HTML
+
+**Strengths:**
+- Fast extraction
+- Automatic article detection
+- Extracts metadata (author, date, keywords, images)
+- No configuration needed
+
+**Limitations:**
+- Requires semantic HTML structure
+- May struggle with unusual layouts
+- Not suitable for non-article content (e-commerce, listings)
+
+## Configuration
+
+Enable in `EXTRACTOR_ORDER`:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+No additional configuration required.
+
+## Extracted Fields
+
+### Standard Fields
+
+<ResponseField name="title" type="string">
+  Article title (extracted from `<h1>`, `<title>`, or meta tags)
+  
+  Falls back to `title_hint` if extraction fails.
+</ResponseField>
+
+<ResponseField name="content" type="string">
+  Main article text (cleaned, no ads/navigation)
+  
+  **Validation:** Min 100 characters
+</ResponseField>
+
+<ResponseField name="author" type="string">
+  Author name(s) (comma-separated if multiple)
+  
+  Extracted from:
+  - `<meta name="author">`
+  - `rel="author"`
+  - Common author class names
+</ResponseField>
+
+<ResponseField name="published_date" type="datetime">
+  Publication date
+  
+  Extracted from:
+  - `<time>` elements
+  - `<meta property="article:published_time">`
+  - URL patterns
+</ResponseField>
+
+### Metadata Fields
+
+<ResponseField name="metadata.top_image" type="string">
+  Main article image URL
+  
+  Extracted from:
+  - `<meta property="og:image">`
+  - `<img>` tags within article
+</ResponseField>
+
+<ResponseField name="metadata.keywords" type="string[]">
+  Extracted keywords (auto-generated from content)
+</ResponseField>
+
+<ResponseField name="metadata.summary" type="string">
+  Auto-generated article summary
+</ResponseField>
+
+## Example Output
+
+```python
+ScrapedArticle(
+    url="https://www.bbc.co.uk/news/articles/abc123",
+    title="Breaking News: Major Event Occurs",
+    content="Full article text here...",
+    author="John Smith, Jane Doe",
+    published_date=datetime(2024, 2, 24, 10, 30),
+    source="newspaper4k",
+    metadata={
+        "top_image": "https://example.com/image.jpg",
+        "keywords": ["news", "event", "breaking"],
+        "summary": "A brief summary of the article..."
+    }
+)
+```
+
+## Fallback Behavior
+
+**Newspaper fails when:**
+- Title extraction fails and no `title_hint` provided
+- Content extraction returns empty or < 100 characters
+- HTML structure is non-semantic (divs without semantic classes)
+
+**Fallback to next extractor:**
+```json
+"EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+```
+
+If newspaper fails, trafilatura is tried next.
+
+## Title Hints
+
+The spider can provide a `title_hint` from other sources:
+
+**Example:** Link text from parent page
+```html
+<a href="/article/123">This becomes title_hint</a>
+```
+
+If newspaper fails to extract title, it uses the hint.
+
+## Performance
+
+**Speed:** Fast (processes HTML in-memory)
+
+**Recommended concurrency:**
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "CONCURRENT_REQUESTS": 16,
+    "DOWNLOAD_DELAY": 1
+  }
+}
+```
+
+## When to Use
+
+### Use Newspaper When:
+
+<Check>Well-structured news websites</Check>
+<Check>Blog platforms (WordPress, Medium, Ghost)</Check>
+<Check>Semantic HTML with proper tags</Check>
+<Check>Need automatic metadata extraction</Check>
+
+### Don't Use Newspaper When:
+
+<Warning>E-commerce sites (use custom extractors)</Warning>
+<Warning>Forums or discussion boards (use callbacks)</Warning>
+<Warning>Heavily customized layouts (use custom selectors)</Warning>
+<Warning>JavaScript-rendered content (use playwright first)</Warning>
+
+## Debugging
+
+**Check if newspaper succeeded:**
+
+```bash
+scrapai show spider 1 --project proj
+```
+
+Look for `source: newspaper4k` in output.
+
+**Test on sample page:**
+
+```bash
+# Download page HTML
+scrapai inspect https://example.com/article --project proj
+
+# Analyze structure
+scrapai analyze data/proj/spider/analysis/page.html
+
+# Run extraction test
+scrapai crawl spider --limit 1 --project proj
+```
+
+**If extraction fails:**
+1. Check if content is in semantic tags (`<article>`, `<main>`, `<p>`)
+2. Try trafilatura as fallback
+3. Use custom selectors if generic extractors fail
+
+## Comparison with Trafilatura
+
+| Feature | Newspaper | Trafilatura |
+|---------|-----------|-------------|
+| **Speed** | Fast | Fast |
+| **Accuracy** | Good | Excellent |
+| **Metadata** | Rich (keywords, summary, images) | Basic (description, tags) |
+| **Best For** | News sites | Any text content |
+| **Fallback** | Use together: `["newspaper", "trafilatura"]` | |
+
+## Configuration Examples
+
+### News Site (Primary Strategy)
+
+```json
+{
+  "name": "bbc_co_uk",
+  "source_url": "https://www.bbc.co.uk/",
+  "allowed_domains": ["bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/news"],
+  "rules": [
+    {
+      "allow": ["/news/articles/.*"],
+      "callback": "parse_article"
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16
+  }
+}
+```
+
+### Blog with Custom Fallback
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.entry-title",
+      "content": "div.entry-content",
+      "author": "a.author-link",
+      "date": "time.published"
+    }
+  }
+}
+```
+
+**Behavior:**
+- Try newspaper first (works for most WordPress blogs)
+- Fallback to custom selectors for non-standard templates
+
+## Related
+
+- [Extractors Overview](/api/extractors-overview) - Strategy selection
+- [Trafilatura Extractor](/api/trafilatura) - Alternative generic extractor
+- [Custom Extractors](/api/custom-extractors) - Site-specific extraction
+- [Settings](/api/settings) - Configuration options

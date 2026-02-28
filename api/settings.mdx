@@ -1,0 +1,349 @@
+---
+title: Spider Settings
+description: Configuration options for spider behavior
+---
+
+Spider settings control extraction strategies, concurrency, delays, and feature flags. Settings are flexible key-value pairs with validation for common options.
+
+## Common Settings
+
+<ParamField path="EXTRACTOR_ORDER" type="string[]" default="null">
+  Extraction strategy order (tries each until success)
+  
+  **Allowed values:**
+  - `"newspaper"` - Newspaper4k extractor
+  - `"trafilatura"` - Trafilatura extractor
+  - `"custom"` - Custom CSS selectors (requires `CUSTOM_SELECTORS`)
+  - `"playwright"` - Browser rendering (for JS content)
+  
+  **Example:**
+  ```json
+  "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  ```
+  
+  **Common patterns:**
+  - `["newspaper", "trafilatura"]` - Generic news/blogs
+  - `["custom", "newspaper"]` - Custom selectors with fallback
+  - `["playwright", "trafilatura"]` - JS-rendered content
+  
+  See [Extractors Overview](/api/extractors-overview) for strategy details.
+</ParamField>
+
+<ParamField path="CUSTOM_SELECTORS" type="object" default="null">
+  CSS selectors for custom extraction
+  
+  **Required for:** `"custom"` in `EXTRACTOR_ORDER`
+  
+  **Standard fields** (map to DB columns):
+  - `title` → scraped_items.title
+  - `content` → scraped_items.content
+  - `author` → scraped_items.author
+  - `date` → scraped_items.published_date
+  
+  **Any other fields** → stored in `metadata_json` column
+  
+  **Example:**
+  ```json
+  "CUSTOM_SELECTORS": {
+    "title": "h1.article-title",
+    "content": "div.article-body",
+    "author": "span.author-name",
+    "date": "time.published-date",
+    "category": "a.category-link"
+  }
+  ```
+  
+  See [Custom Extractors](/api/custom-extractors) for details.
+</ParamField>
+
+<ParamField path="CONCURRENT_REQUESTS" type="integer" default="null">
+  Maximum concurrent requests
+  
+  **Validation:**
+  - Min: 1
+  - Max: 32
+  
+  **Recommended:**
+  - Small sites: 8-16
+  - Large sites: 16-32
+  - Playwright enabled: 2-4
+  
+  **Example:**
+  ```json
+  "CONCURRENT_REQUESTS": 16
+  ```
+</ParamField>
+
+<ParamField path="DOWNLOAD_DELAY" type="float" default="null">
+  Delay between requests (seconds)
+  
+  **Validation:**
+  - Min: 0
+  - Max: 60
+  
+  **Recommended:**
+  - Polite crawling: 1-2
+  - Aggressive: 0-0.5
+  - Rate-limited sites: 2-5
+  
+  **Example:**
+  ```json
+  "DOWNLOAD_DELAY": 1
+  ```
+</ParamField>
+
+## Cloudflare Settings
+
+<ParamField path="CLOUDFLARE_ENABLED" type="boolean" default="null">
+  Enable Cloudflare bypass
+  
+  **Use when:** Site returns "Checking your browser" or 403 errors
+  
+  **Example:**
+  ```json
+  "CLOUDFLARE_ENABLED": true
+  ```
+</ParamField>
+
+<ParamField path="CLOUDFLARE_STRATEGY" type="string" default="null">
+  Cloudflare bypass strategy
+  
+  **Allowed values:**
+  - `"hybrid"` - Try normal request first, fallback to browser
+  - `"browser_only"` - Always use browser
+  
+  **Example:**
+  ```json
+  "CLOUDFLARE_STRATEGY": "hybrid"
+  ```
+</ParamField>
+
+## Playwright Settings
+
+<ParamField path="PLAYWRIGHT_WAIT_SELECTOR" type="string" default="null">
+  CSS selector to wait for before extracting
+  
+  **Use when:** Content loads after page renders (AJAX, lazy loading)
+  
+  **Timeout:** 30 seconds
+  
+  **Example:**
+  ```json
+  "PLAYWRIGHT_WAIT_SELECTOR": ".article-content"
+  ```
+  
+  See [Playwright Extractor](/api/playwright) for details.
+</ParamField>
+
+<ParamField path="PLAYWRIGHT_DELAY" type="float" default="null">
+  Additional seconds to wait after page load
+  
+  **Use when:** Content loads with unpredictable timing
+  
+  **Example:**
+  ```json
+  "PLAYWRIGHT_DELAY": 5
+  ```
+</ParamField>
+
+<ParamField path="INFINITE_SCROLL" type="boolean" default="null">
+  Enable infinite scroll behavior
+  
+  **Use when:** Single-page sites load content on scroll
+  
+  **Requires:** `"playwright"` in `EXTRACTOR_ORDER`
+  
+  **Example:**
+  ```json
+  "INFINITE_SCROLL": true
+  ```
+</ParamField>
+
+<ParamField path="MAX_SCROLLS" type="integer" default="5">
+  Maximum scroll iterations
+  
+  **Used with:** `INFINITE_SCROLL: true`
+  
+  **Example:**
+  ```json
+  "MAX_SCROLLS": 10
+  ```
+</ParamField>
+
+<ParamField path="SCROLL_DELAY" type="float" default="1.0">
+  Delay between scrolls (seconds)
+  
+  **Used with:** `INFINITE_SCROLL: true`
+  
+  **Example:**
+  ```json
+  "SCROLL_DELAY": 2.0
+  ```
+</ParamField>
+
+## Scrapy Settings
+
+<ParamField path="ROBOTSTXT_OBEY" type="boolean" default="null">
+  Respect robots.txt
+  
+  **Example:**
+  ```json
+  "ROBOTSTXT_OBEY": true
+  ```
+</ParamField>
+
+<ParamField path="DEPTH_LIMIT" type="integer" default="null">
+  Maximum crawl depth
+  
+  **Example:**
+  ```json
+  "DEPTH_LIMIT": 3
+  ```
+</ParamField>
+
+## Advanced Features
+
+<ParamField path="DELTAFETCH_ENABLED" type="boolean" default="null">
+  Enable delta fetching (skip already-crawled URLs)
+  
+  **Example:**
+  ```json
+  "DELTAFETCH_ENABLED": true
+  ```
+</ParamField>
+
+## Configuration Examples
+
+### News Site (Generic Extractors)
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16,
+    "ROBOTSTXT_OBEY": true
+  }
+}
+```
+
+### E-commerce (Custom Selectors)
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.product-name",
+      "content": "div.description",
+      "price": "span.price",
+      "rating": "div.rating::attr(data-rating)"
+    },
+    "DOWNLOAD_DELAY": 2,
+    "CONCURRENT_REQUESTS": 8
+  }
+}
+```
+
+### JS-Rendered Site
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "PLAYWRIGHT_DELAY": 3,
+    "DOWNLOAD_DELAY": 2,
+    "CONCURRENT_REQUESTS": 2
+  }
+}
+```
+
+### Cloudflare-Protected Site
+
+```json
+{
+  "settings": {
+    "CLOUDFLARE_ENABLED": true,
+    "CLOUDFLARE_STRATEGY": "hybrid",
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 3,
+    "CONCURRENT_REQUESTS": 4
+  }
+}
+```
+
+### Infinite Scroll Page
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".quote",
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 10,
+    "SCROLL_DELAY": 2.0,
+    "DOWNLOAD_DELAY": 0,
+    "CONCURRENT_REQUESTS": 1
+  },
+  "rules": [
+    {
+      "allow": [".*"],
+      "follow": false
+    }
+  ]
+}
+```
+
+## Custom Settings
+
+The schema allows arbitrary key-value pairs for custom Scrapy settings:
+
+```json
+{
+  "settings": {
+    "USER_AGENT": "MyBot/1.0",
+    "AUTOTHROTTLE_ENABLED": true,
+    "HTTPCACHE_ENABLED": true
+  }
+}
+```
+
+Custom settings are passed directly to Scrapy without validation.
+
+## Validation Errors
+
+### Unknown Extractor
+
+```
+Unknown extractor: custom_parser. 
+Allowed: newspaper, trafilatura, custom, playwright
+```
+
+**Fix:** Use valid extractor name
+
+### Invalid Cloudflare Strategy
+
+```
+Invalid Cloudflare strategy: browser. 
+Allowed: hybrid, browser_only
+```
+
+**Fix:** Use `"hybrid"` or `"browser_only"`
+
+### Out of Range
+
+```
+CONCURRENT_REQUESTS must be >= 1 and <= 32
+```
+
+**Fix:** Use value within allowed range
+
+## Related
+
+- [Extractors Overview](/api/extractors-overview) - Extraction strategies
+- [Newspaper Extractor](/api/newspaper) - Newspaper4k details
+- [Trafilatura Extractor](/api/trafilatura) - Trafilatura details
+- [Custom Extractors](/api/custom-extractors) - CSS selector extraction
+- [Playwright Extractor](/api/playwright) - Browser rendering
+- [Spider Schema](/api/spider-schema) - Complete configuration

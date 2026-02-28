@@ -1,0 +1,452 @@
+---
+title: 'Parallel Crawling'
+description: 'Run multiple spiders simultaneously with GNU parallel'
+icon: 'gauge-high'
+---
+
+Crawl hundreds of websites in parallel with automatic resource management and intelligent parallelism detection.
+
+## Overview
+
+The `parallel-crawl` script uses GNU parallel to run multiple ScrapAI spiders concurrently. It automatically detects system resources (CPU cores, available memory) and calculates optimal parallelism based on spider types (regular vs. Cloudflare-enabled).
+
+## Quick Start
+
+### Install GNU Parallel
+
+<CodeGroup>
+
+```bash macOS
+brew install parallel
+```
+
+```bash Ubuntu/Debian
+sudo apt-get install parallel
+```
+
+</CodeGroup>
+
+### Run All Spiders in Project
+
+```bash
+bin/parallel-crawl myproject
+```
+
+### Run Specific Spiders
+
+```bash
+bin/parallel-crawl myproject spider1 spider2 spider3
+```
+
+## How It Works
+
+From `bin/parallel-crawl:1-134`:
+
+```bash
+#!/bin/bash
+# Parallel crawler using GNU parallel
+
+set -euo pipefail
+
+PROJECT="$1"
+shift
+
+# Get spider list
+if [ $# -eq 0 ]; then
+    SPIDERS=$(./scrapai spiders list --project "$PROJECT" | grep '•' | awk '{print $2}')
+else
+    SPIDERS="$@"
+fi
+
+# Count Cloudflare-enabled spiders
+CF_COUNT=$(python3 -c "
+from core.db import get_db
+from core.models import Spider
+
+db = next(get_db())
+names = sys.argv[1:]
+count = 0
+for name in names:
+    spider = db.query(Spider).filter(Spider.name == name).first()
+    if spider:
+        for s in spider.settings:
+            if s.key == 'CLOUDFLARE_ENABLED' and str(s.value).lower() in ('true', '1'):
+                count += 1
+                break
+print(count)
+" $SPIDERS)
+
+# Auto-detect parallelism from system resources
+CPU_CORES=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+AVAILABLE_MEM_MB=$(free -m | awk '/^Mem:/ {print $7}')
+
+# Memory per spider: regular 200MB, Cloudflare 500MB
+if [ "$CF_COUNT" -eq 0 ]; then
+    MEM_PER_SPIDER=200
+elif [ "$CF_COUNT" -eq "$SPIDER_COUNT" ]; then
+    MEM_PER_SPIDER=500
+else
+    MEM_PER_SPIDER=$(( (REGULAR_COUNT * 200 + CF_COUNT * 500) / SPIDER_COUNT ))
+fi
+
+MEM_PARALLEL=$(( (AVAILABLE_MEM_MB - 2048) / MEM_PER_SPIDER ))
+CPU_PARALLEL=$(( CPU_CORES * 80 / 100 ))
+PARALLEL=$(( MEM_PARALLEL < CPU_PARALLEL ? MEM_PARALLEL : CPU_PARALLEL ))
+
+# Run crawls in parallel
+echo "$SPIDERS" | tr ' ' '\n' | parallel \
+    -j "$PARALLEL" \
+    --timeout 8h \
+    --halt soon,fail=50% \
+    --line-buffer \
+    --tagstring "[{.}]" \
+    "./scrapai crawl {} --project $PROJECT"
+```
+
+## Resource Calculation
+
+### Memory-Based Parallelism
+
+The script allocates memory per spider type:
+
+- **Regular spiders**: 200 MB each
+- **Cloudflare spiders**: 500 MB each (browser automation overhead)
+- **Mixed fleet**: Weighted average
+
+**Formula:**
+
+```bash
+AVAILABLE_MEM_MB=$(free -m | awk '/^Mem:/ {print $7}')
+MEM_PARALLEL=$(( (AVAILABLE_MEM_MB - 2048) / MEM_PER_SPIDER ))
+```
+
+Reserves 2GB for system, divides remaining memory by per-spider allocation.
+
+### CPU-Based Parallelism
+
+```bash
+CPU_CORES=$(nproc)
+CPU_PARALLEL=$(( CPU_CORES * 80 / 100 ))
+```
+
+Uses 80% of available cores to avoid saturating the system.
+
+### Final Parallelism
+
+```bash
+PARALLEL=$(( MEM_PARALLEL < CPU_PARALLEL ? MEM_PARALLEL : CPU_PARALLEL ))
+[ "$PARALLEL" -lt 2 ] && PARALLEL=2
+[ "$PARALLEL" -gt 20 ] && PARALLEL=20
+```
+
+Takes the minimum of memory-based and CPU-based limits, clamped between 2 and 20.
+
+## Example Output
+
+```bash
+$ bin/parallel-crawl news
+
+==========================================
+Parallel Crawler
+==========================================
+Project:  news
+Spiders:  47 (12 CF + 35 regular)
+Parallel: 8 jobs
+Timeout:  8h per spider
+==========================================
+
+Continue? (y/N): y
+
+Starting parallel crawl...
+
+[bbc_co_uk]  Starting crawl...
+[guardian]   Starting crawl...
+[reuters]    Starting crawl...
+[cnn]        Starting crawl...
+[bbc_co_uk]  ✓ Crawled 1,247 pages
+[guardian]   ✓ Crawled 892 pages
+[ap_news]    Starting crawl...
+[reuters]    ✓ Crawled 2,103 pages
+...
+```
+
+## Advanced Usage
+
+### Custom Parallelism
+
+Override auto-detection:
+
+```bash
+# Force 4 parallel jobs
+echo "$SPIDERS" | tr ' ' '\n' | parallel -j 4 \
+    "./scrapai crawl {} --project myproject"
+```
+
+### Timeout Control
+
+```bash
+# 2-hour timeout per spider
+parallel --timeout 2h ...
+
+# No timeout (dangerous for stuck spiders)
+parallel --timeout 0 ...
+```
+
+### Failure Handling
+
+From `bin/parallel-crawl:127`:
+
+```bash
+--halt soon,fail=50%
+```
+
+Stops all jobs if 50% or more fail. Prevents wasting resources on broken configuration.
+
+**Other halt strategies:**
+
+```bash
+--halt now,fail=1     # Stop immediately on first failure
+--halt soon,fail=10%  # Stop if 10% fail
+--halt never          # Continue even if all fail
+```
+
+### Progress Monitoring
+
+```bash
+# Add progress bar
+parallel --progress ...
+
+# Show ETA
+parallel --eta ...
+
+# Both
+parallel --progress --eta ...
+```
+
+### Job Log
+
+```bash
+# Log all job completions
+parallel --joblog crawl_log.txt ...
+
+# Resume from log (skip completed jobs)
+parallel --joblog crawl_log.txt --resume ...
+```
+
+## Resource Management
+
+### Memory Limits
+
+**Why 200MB for regular spiders?**
+
+- Scrapy framework: ~50 MB
+- Downloaded pages in memory: ~100 MB
+- Extraction libraries: ~50 MB
+
+**Why 500MB for Cloudflare spiders?**
+
+- Above base: 200 MB
+- Browser process (Chromium): ~200 MB
+- Rendering overhead: ~100 MB
+
+### CPU Scheduling
+
+GNU parallel uses fair CPU scheduling:
+
+- Jobs share CPU time equally
+- I/O-bound tasks (most scrapers) yield CPU automatically
+- Network-bound tasks have minimal CPU impact
+
+### Disk I/O
+
+Each spider writes to separate output file:
+
+```
+data/{spider_name}/YYYY-MM-DD/crawl_HHMMSS.jsonl
+```
+
+No I/O contention between spiders.
+
+## Patterns and Best Practices
+
+### Small Fleet (< 10 spiders)
+
+```bash
+# Just run them all
+bin/parallel-crawl myproject
+```
+
+Auto-detection handles everything.
+
+### Medium Fleet (10-50 spiders)
+
+```bash
+# Prioritize by importance
+bin/parallel-crawl myproject high_priority_1 high_priority_2 ...
+
+# Then run the rest
+bin/parallel-crawl myproject
+```
+
+### Large Fleet (50+ spiders)
+
+**Split by type:**
+
+```bash
+# Run Cloudflare spiders first (slower, memory-intensive)
+bin/parallel-crawl myproject $(./scrapai spiders list --project myproject | \
+    grep -i cloudflare | awk '{print $2}')
+
+# Then run regular spiders
+bin/parallel-crawl myproject $(./scrapai spiders list --project myproject | \
+    grep -v cloudflare | awk '{print $2}')
+```
+
+**Split by schedule:**
+
+```bash
+# Morning batch (9am cron)
+bin/parallel-crawl news bbc guardian cnn reuters
+
+# Evening batch (9pm cron)
+bin/parallel-crawl news nytimes wapo ft bloomberg
+```
+
+### Memory-Constrained Systems
+
+```bash
+# Reduce parallelism
+echo "$SPIDERS" | tr ' ' '\n' | parallel -j 2 ...
+
+# Or run sequentially
+for spider in $SPIDERS; do
+    ./scrapai crawl $spider --project myproject
+done
+```
+
+## Comparison with Airflow
+
+| Feature | Parallel-Crawl | Airflow |
+|---------|----------------|----------|
+| **Setup** | None (just GNU parallel) | Docker + configuration |
+| **Scheduling** | Cron jobs | Built-in scheduler |
+| **Monitoring** | Terminal output + logs | Web UI + graphs |
+| **Parallelism** | Auto-detected | Manual configuration |
+| **Retry logic** | Manual (rerun command) | Automatic with backoff |
+| **Use case** | Ad-hoc batch crawls | Production scheduling |
+
+**When to use parallel-crawl:**
+
+- One-time crawls of many sites
+- Testing spider fleet
+- Resource-constrained environments
+- Simple cron-based scheduling
+
+**When to use Airflow:**
+
+- Production deployments
+- Complex dependencies between spiders
+- Team collaboration
+- Historical execution tracking
+
+## Integration with Cron
+
+### Daily Crawl of All Spiders
+
+```bash
+# crontab -e
+0 2 * * * cd /path/to/scrapai-cli && bin/parallel-crawl news >> logs/crawl.log 2>&1
+```
+
+Runs at 2am daily.
+
+### Weekday vs. Weekend
+
+```bash
+# Weekdays: full crawl
+0 2 * * 1-5 cd /path/to/scrapai-cli && bin/parallel-crawl news
+
+# Weekends: high-priority only
+0 2 * * 0,6 cd /path/to/scrapai-cli && bin/parallel-crawl news priority1 priority2
+```
+
+### Staggered Batches
+
+```bash
+# Batch 1: 2am
+0 2 * * * cd /path/to/scrapai-cli && bin/parallel-crawl news $(cat batch1.txt)
+
+# Batch 2: 8am
+0 8 * * * cd /path/to/scrapai-cli && bin/parallel-crawl news $(cat batch2.txt)
+
+# Batch 3: 2pm
+0 14 * * * cd /path/to/scrapai-cli && bin/parallel-crawl news $(cat batch3.txt)
+```
+
+## Troubleshooting
+
+### GNU Parallel Not Found
+
+```bash
+❌ GNU parallel is not installed
+
+# Install on macOS
+brew install parallel
+
+# Install on Linux
+sudo apt-get install parallel
+```
+
+### Out of Memory Errors
+
+**Symptom**: Spiders crash with "Killed" or OOM errors.
+
+**Solution**: Reduce parallelism or split fleet.
+
+```bash
+# Check available memory
+free -h
+
+# Reduce parallelism
+echo "$SPIDERS" | tr ' ' '\n' | parallel -j 2 ...
+```
+
+### Some Spiders Timeout
+
+**Symptom**: "SIGTERM" or timeout messages.
+
+**Solution**: Increase timeout or exclude slow spiders.
+
+```bash
+# Increase timeout
+parallel --timeout 12h ...
+
+# Run slow spiders separately
+bin/parallel-crawl news fast_spider1 fast_spider2
+./scrapai crawl slow_spider --project news  # Run alone
+```
+
+### Jobs Not Starting
+
+**Check if parallel is actually running:**
+
+```bash
+ps aux | grep parallel
+```
+
+**Check logs:**
+
+```bash
+tail -f ~/.parallel/tmp/*
+```
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Airflow Integration" icon="calendar-clock" href="/advanced/airflow-scheduling">
+    Production scheduling with Apache Airflow
+  </Card>
+  <Card title="Checkpoint" icon="pause" href="/core-features/checkpoint">
+    Pause and resume long crawls
+  </Card>
+</CardGroup>

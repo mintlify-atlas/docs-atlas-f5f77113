@@ -1,80 +1,274 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Quick Start"
+description: "Build your first scraper in 5 minutes with ScrapAI CLI"
 ---
 
-## Get started in three steps
+## Prerequisites
 
-Get your documentation site running locally and make your first customization.
+Before you begin, ensure you have:
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+- Python 3.9 or higher
+- Git
+- Terminal access
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+ScrapAI works on **Linux**, **macOS**, and **Windows**. The setup process is identical across all platforms.
 </Note>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/discourselab/scrapai-cli.git
+    cd scrapai-cli
+    ```
+  </Step>
+  
+  <Step title="Run setup">
+    ```bash
+    ./scrapai setup
+    ```
+    
+    This command:
+    - Creates a virtual environment (`.venv`)
+    - Installs all Python dependencies
+    - Installs Playwright Chromium browser
+    - Initializes SQLite database
+    - Creates `.env` configuration file
+    - Configures Claude Code permissions (if using AI agents)
+    
+    <Tip>
+    On **Windows**, use `scrapai setup` instead of `./scrapai setup`.
+    </Tip>
+    
+    <Warning>
+    On **Linux**, if Chromium fails to launch, install system dependencies:
+    ```bash
+    sudo .venv/bin/python -m playwright install-deps chromium
+    ```
+    </Warning>
+  </Step>
+  
+  <Step title="Verify installation">
+    ```bash
+    ./scrapai verify
+    ```
+    
+    You should see:
+    ```
+    ✅ Virtual environment exists
+    ✅ Core dependencies installed
+    ✅ Database initialized
+    🎉 Environment is ready!
+    ```
+  </Step>
+</Steps>
+
+## Your First Scraper
+
+Let's import and run a pre-built spider for BBC News.
+
+<Steps>
+  <Step title="Import the spider">
+    ScrapAI includes example spiders in the `templates/` directory. Let's import the BBC News spider:
+    
+    ```bash
+    ./scrapai spiders import templates/news/bbc_co_uk/analysis/final_spider.json --project news
+    ```
+    
+    This imports a spider configuration that knows how to:
+    - Find BBC news article URLs
+    - Extract titles, content, authors, and publish dates
+    - Handle multiple BBC sections (news, sport, food, etc.)
+  </Step>
+  
+  <Step title="Run a test crawl">
+    Run the spider in test mode (limits to 5 items):
+    
+    ```bash
+    ./scrapai crawl bbc_co_uk --project news --limit 5
+    ```
+    
+    <Tip>
+    Test mode (`--limit`) stores data in the database for inspection. Production mode (no limit) exports to timestamped JSONL files.
+    </Tip>
+    
+    You'll see Scrapy crawling in action:
+    ```
+    2026-02-28 14:30:12 [scrapy.core.engine] INFO: Spider opened
+    2026-02-28 14:30:13 [scrapy.core.scraper] DEBUG: Scraped from <200 https://www.bbc.co.uk/news/articles/...>
+    {'title': 'Breaking news story title', 'content': '...', 'author': 'BBC News', ...}
+    ```
+  </Step>
+  
+  <Step title="View the results">
+    Inspect the scraped data:
+    
+    ```bash
+    ./scrapai show bbc_co_uk --project news
+    ```
+    
+    This displays all scraped items in a formatted table with titles, URLs, and timestamps.
+  </Step>
+  
+  <Step title="Export the data">
+    Export to your preferred format:
+    
+    <CodeGroup>
+    ```bash CSV
+    ./scrapai export bbc_co_uk --project news --format csv
+    ```
+    
+    ```bash JSON
+    ./scrapai export bbc_co_uk --project news --format json
+    ```
+    
+    ```bash JSONL
+    ./scrapai export bbc_co_uk --project news --format jsonl
+    ```
+    
+    ```bash Parquet
+    ./scrapai export bbc_co_uk --project news --format parquet
+    ```
+    </CodeGroup>
+    
+    Exports are saved to the `data/` directory with timestamps.
+  </Step>
+</Steps>
+
+## Understanding the Spider Config
+
+Let's look at what the BBC spider configuration contains:
+
+```json
+{
+  "name": "bbc_co_uk",
+  "source_url": "https://bbc.co.uk/",
+  "allowed_domains": ["bbc.co.uk", "www.bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/"],
+  "rules": [
+    {
+      "allow": ["/news/articles/.*"],
+      "deny": ["/news/articles/.*#comments"],
+      "callback": "parse_article"
+    },
+    {
+      "allow": ["/sport/.*/articles/.*"],
+      "callback": "parse_article"
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16,
+    "ROBOTSTXT_OBEY": true
+  }
+}
+```
+
+<Accordion title="Understanding the fields">
+  - **name**: Unique identifier for the spider
+  - **allowed_domains**: Only crawl URLs from these domains
+  - **start_urls**: Where the spider begins crawling
+  - **rules**: URL patterns to follow or extract data from
+    - **allow**: Regex patterns to match URLs
+    - **deny**: Regex patterns to exclude URLs
+    - **callback**: What to do with matched URLs (`parse_article` extracts article content)
+  - **settings**: Spider-specific configuration
+    - **EXTRACTOR_ORDER**: Try newspaper4k first, fall back to trafilatura
+    - **DOWNLOAD_DELAY**: Wait 1 second between requests (be polite)
+    - **CONCURRENT_REQUESTS**: Crawl up to 16 pages simultaneously
+    - **ROBOTSTXT_OBEY**: Respect the site's robots.txt
+</Accordion>
+
+## Explore More Examples
+
+ScrapAI includes several ready-to-use spider templates:
+
+<CardGroup cols={2}>
+  <Card title="E-Commerce" icon="cart-shopping">
+    ```bash
+    ./scrapai spiders import templates/ecommerce/amazon_co_uk_mac_accessories/analysis/final_spider.json --project shop
+    ```
+    Scrapes product listings with prices, ratings, and descriptions
+  </Card>
+  
+  <Card title="Forums" icon="comments">
+    ```bash
+    ./scrapai spiders import templates/forums/news_ycombinator_com/analysis/final_spider.json --project forums
+    ```
+    Extracts discussion threads, authors, and timestamps
+  </Card>
+  
+  <Card title="Cloudflare-Protected" icon="shield">
+    ```bash
+    ./scrapai spiders import templates/cloudflare/thefga_org/analysis/final_spider.json --project research
+    ```
+    Demonstrates Cloudflare bypass with cookie caching
+  </Card>
+  
+  <Card title="Real Estate" icon="house">
+    ```bash
+    ./scrapai spiders import templates/spider-realestate.json --project housing
+    ```
+    Property listings with custom field extractors
+  </Card>
+</CardGroup>
+
+## Using with AI Agents
+
+ScrapAI is designed to work with AI coding agents like Claude Code. Instead of manually writing JSON configs, you describe what you want in plain English:
+
+```bash
+claude
+```
+
+```
+You: "Add https://techcrunch.com to my news project"
+Agent: [Analyzes site, generates rules, tests extraction, deploys spider]
+
+You: "Crawl all spiders in my news project and export to CSV"
+Agent: [Executes crawls, exports data]
+```
+
+<Tip>
+The `./scrapai setup` command automatically configures Claude Code permissions to prevent the agent from modifying framework code—it can only write JSON configs and run CLI commands.
+</Tip>
+
+## Production Crawling
+
+For production crawls without limits:
+
+```bash
+./scrapai crawl bbc_co_uk --project news
+```
+
+This enables:
+- **Checkpoint pause/resume**: Press Ctrl+C to pause, re-run to resume
+- **JSONL export**: Data automatically exported to `data/exports/` with timestamps
+- **Incremental crawling**: Skip already-scraped URLs on subsequent runs
+
+<Warning>
+Production crawls can run for hours or days. Use `--limit` for testing first.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation Guide" icon="download" href="/installation">
+    Detailed installation instructions for all platforms
+  </Card>
+  
+  <Card title="CLI Reference" icon="terminal" href="/cli-reference">
+    Complete command reference
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Configure proxies, databases, and S3 storage
+  </Card>
+  
+  <Card title="Building Spiders" icon="spider" href="/building-spiders">
+    Learn how to create custom spider configs
+  </Card>
+</CardGroup>

@@ -1,0 +1,283 @@
+---
+title: Extractors Overview
+description: Content extraction strategies and fallback order
+---
+
+ScrapAI supports multiple extraction strategies that can be chained with fallback. Each extractor tries to extract content, and if it fails, the next one is attempted.
+
+## Available Extractors
+
+<CardGroup cols={2}>
+  <Card title="Newspaper4k" icon="newspaper" href="/api/newspaper">
+    General-purpose article extractor for news and blogs
+  </Card>
+  <Card title="Trafilatura" icon="file-lines" href="/api/trafilatura">
+    Lightweight content extraction with high accuracy
+  </Card>
+  <Card title="Custom CSS" icon="code" href="/api/custom-extractors">
+    Site-specific CSS selectors for structured data
+  </Card>
+  <Card title="Playwright" icon="browser" href="/api/playwright">
+    Browser rendering for JavaScript-heavy sites
+  </Card>
+</CardGroup>
+
+## Extraction Order
+
+Configure extraction order in spider settings:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+  }
+}
+```
+
+**How it works:**
+1. Try first extractor (e.g., `newspaper`)
+2. If extraction fails or content too short → try next extractor
+3. Continue until successful extraction or all extractors exhausted
+4. Return `ScrapedArticle` or `None`
+
+## Strategy Selection
+
+| Scenario | Recommended Order |
+|----------|------------------|
+| Generic news/blog (clean HTML) | `["newspaper", "trafilatura"]` |
+| Generic extractors fail | `["custom", "newspaper", "trafilatura"]` |
+| JavaScript-rendered content (SPA) | `["playwright", "trafilatura"]` |
+| JS-rendered + custom structure | `["playwright", "custom"]` |
+| E-commerce, jobs, listings | `["custom"]` (with callbacks) |
+| Infinite scroll page | `["playwright"]` (single extractor) |
+
+## Extractor Comparison
+
+| Feature | Newspaper | Trafilatura | Custom | Playwright |
+|---------|-----------|-------------|--------|------------|
+| **Speed** | Fast | Fast | Fast | Slow |
+| **Accuracy** | Good | Excellent | Perfect (if configured) | Good |
+| **Setup** | None | None | Requires CSS selectors | Requires wait config |
+| **Use Case** | News articles | Any content | Structured data | JS content |
+| **Metadata** | Keywords, summary, top_image | Description, tags, fingerprint | Custom fields | None (uses trafilatura) |
+
+## Content Validation
+
+All extractors return `ScrapedArticle` which validates:
+
+**Title:**
+- Must exist
+- Min length: 5 characters
+
+**Content:**
+- Must exist
+- Min length: 100 characters
+
+**If validation fails:** Extractor returns `None`, next strategy is tried
+
+## ScrapedArticle Schema
+
+<ResponseField name="url" type="string" required>
+  Page URL
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Article/page title (min 5 chars)
+</ResponseField>
+
+<ResponseField name="content" type="string" required>
+  Main content text (min 100 chars)
+</ResponseField>
+
+<ResponseField name="author" type="string">
+  Author name (if available)
+</ResponseField>
+
+<ResponseField name="published_date" type="datetime">
+  Publication date (if available)
+</ResponseField>
+
+<ResponseField name="source" type="string" required>
+  Extractor used: `"newspaper4k"`, `"trafilatura"`, `"custom"`, `"playwright"`
+</ResponseField>
+
+<ResponseField name="extracted_at" type="datetime" required>
+  Extraction timestamp (UTC)
+</ResponseField>
+
+<ResponseField name="metadata" type="object" default="{}">
+  Extractor-specific or custom fields
+  
+  **Newspaper metadata:**
+  - `top_image` - Main image URL
+  - `keywords` - Extracted keywords
+  - `summary` - Auto-generated summary
+  
+  **Trafilatura metadata:**
+  - `description` - Meta description
+  - `sitename` - Site name
+  - `categories`, `tags`, `fingerprint`, `license`
+  
+  **Custom metadata:**
+  - Any fields from `CUSTOM_SELECTORS` (except title/content/author/date)
+  - Any fields from callback `extract` config
+</ResponseField>
+
+<ResponseField name="html" type="string">
+  Raw HTML (only if `include_html=True` in export)
+</ResponseField>
+
+## Configuration Examples
+
+### Generic News Site
+
+```json
+{
+  "name": "bbc_co_uk",
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 16
+  }
+}
+```
+
+**Behavior:**
+- Try `newspaper` first (fast, good for news)
+- Fallback to `trafilatura` if newspaper fails
+
+### Custom Selectors with Fallback
+
+```json
+{
+  "name": "custom_blog",
+  "settings": {
+    "EXTRACTOR_ORDER": ["custom", "newspaper", "trafilatura"],
+    "CUSTOM_SELECTORS": {
+      "title": "h1.post-title",
+      "content": "div.post-content",
+      "author": "span.author-name",
+      "category": "a.category"
+    }
+  }
+}
+```
+
+**Behavior:**
+- Try custom selectors first (highest accuracy)
+- Fallback to generic extractors if selectors fail
+
+### JavaScript-Rendered Site
+
+```json
+{
+  "name": "spa_site",
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "PLAYWRIGHT_DELAY": 3,
+    "CONCURRENT_REQUESTS": 2
+  }
+}
+```
+
+**Behavior:**
+- Render page with Playwright
+- Wait for `.article-content` to appear
+- Extract with trafilatura from rendered HTML
+
+### E-commerce (Custom Only)
+
+```json
+{
+  "name": "example_shop",
+  "settings": {
+    "EXTRACTOR_ORDER": []
+  },
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {"css": "h1.product-name::text"},
+        "price": {"css": "span.price::text"}
+      }
+    }
+  }
+}
+```
+
+**Behavior:**
+- No generic extractors (not article content)
+- Use callback-based extraction only
+
+## Fallback Behavior
+
+**Extraction fails when:**
+- Selector returns no match
+- Content/title too short (< 100 chars / < 5 chars)
+- Parser exception
+
+**Next strategy is tried when:**
+- Extractor returns `None`
+- Validation fails on returned `ScrapedArticle`
+
+**All extractors failed:**
+- Page is skipped
+- Error logged
+- No item saved to database
+
+## Performance Considerations
+
+**Fast extractors (news/blogs):**
+```json
+"EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+"CONCURRENT_REQUESTS": 16
+```
+
+**Playwright (slow, use low concurrency):**
+```json
+"EXTRACTOR_ORDER": ["playwright", "trafilatura"]
+"CONCURRENT_REQUESTS": 2
+"DOWNLOAD_DELAY": 2
+```
+
+**Custom selectors (fast if configured correctly):**
+```json
+"EXTRACTOR_ORDER": ["custom"]
+"CONCURRENT_REQUESTS": 16
+```
+
+## Debugging Extraction
+
+**Test extraction order:**
+
+```bash
+# Analyze HTML structure
+scrapai analyze data/proj/spider/analysis/page.html
+
+# Test custom selector
+scrapai analyze page.html --test "h1.article-title"
+
+# Crawl with limit
+scrapai crawl spider --limit 5 --project proj
+
+# View extracted data
+scrapai show spider 1 --project proj
+```
+
+**Check which extractor succeeded:**
+
+Look at the `source` field in scraped items:
+
+```bash
+scrapai show spider 1 --project proj
+```
+
+Output shows `source: newspaper4k` or `source: trafilatura`, etc.
+
+## Related
+
+- [Newspaper Extractor](/api/newspaper) - Newspaper4k configuration
+- [Trafilatura Extractor](/api/trafilatura) - Trafilatura options
+- [Custom Extractors](/api/custom-extractors) - CSS selector syntax
+- [Playwright Extractor](/api/playwright) - Browser rendering
+- [Settings](/api/settings) - Complete settings reference

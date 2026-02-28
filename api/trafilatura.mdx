@@ -1,0 +1,334 @@
+---
+title: Trafilatura Extractor
+description: Lightweight, high-accuracy content extraction
+---
+
+Trafilatura is a fast, accurate content extractor that works on any text-heavy page. It focuses on extracting main content while removing boilerplate, ads, and navigation.
+
+## Overview
+
+**Best for:**
+- Any text content (articles, blogs, documentation)
+- Sites with complex HTML structure
+- Minimal metadata requirements
+- High accuracy content extraction
+
+**Strengths:**
+- Excellent accuracy (removes boilerplate reliably)
+- Fast extraction
+- Works on varied HTML structures
+- Lightweight
+
+**Limitations:**
+- Less metadata than newspaper4k
+- Not suitable for non-text content (e-commerce, listings)
+
+## Configuration
+
+Enable in `EXTRACTOR_ORDER`:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura", "newspaper"]
+  }
+}
+```
+
+No additional configuration required.
+
+## Extracted Fields
+
+### Standard Fields
+
+<ResponseField name="title" type="string">
+  Page title (extracted from `<title>`, `<h1>`, or meta tags)
+  
+  Falls back to `title_hint` if extraction fails.
+</ResponseField>
+
+<ResponseField name="content" type="string">
+  Main content text (cleaned, boilerplate removed)
+  
+  **Validation:** Min 100 characters
+  
+  **Trafilatura's strength:** Excellent at identifying main content vs navigation/ads
+</ResponseField>
+
+<ResponseField name="author" type="string">
+  Author name (if available in metadata)
+  
+  Extracted from:
+  - `<meta name="author">`
+  - JSON-LD structured data
+</ResponseField>
+
+<ResponseField name="published_date" type="datetime">
+  Publication date (if available)
+  
+  Extracted from:
+  - Structured data (JSON-LD, microdata)
+  - Common date patterns
+</ResponseField>
+
+### Metadata Fields
+
+<ResponseField name="metadata.description" type="string">
+  Meta description
+</ResponseField>
+
+<ResponseField name="metadata.sitename" type="string">
+  Site name (from meta tags or content)
+</ResponseField>
+
+<ResponseField name="metadata.categories" type="string">
+  Content categories (if available)
+</ResponseField>
+
+<ResponseField name="metadata.tags" type="string">
+  Content tags (if available)
+</ResponseField>
+
+<ResponseField name="metadata.fingerprint" type="string">
+  Content fingerprint (for deduplication)
+</ResponseField>
+
+<ResponseField name="metadata.license" type="string">
+  Content license (if specified)
+</ResponseField>
+
+## Example Output
+
+```python
+ScrapedArticle(
+    url="https://example.com/article",
+    title="Article Title",
+    content="Main article content with excellent accuracy...",
+    author="Jane Doe",
+    published_date=datetime(2024, 2, 24),
+    source="trafilatura",
+    metadata={
+        "description": "Article meta description",
+        "sitename": "Example News",
+        "categories": "Technology",
+        "tags": "web scraping, automation",
+        "fingerprint": "abc123def456",
+        "license": "CC BY-NC-SA 4.0"
+    }
+)
+```
+
+## Fallback Behavior
+
+**Trafilatura fails when:**
+- Content extraction returns empty or < 100 characters
+- No text content found (e.g., image-only pages)
+
+**Common fallback patterns:**
+
+```json
+// Try trafilatura first (highest accuracy)
+"EXTRACTOR_ORDER": ["trafilatura", "newspaper"]
+
+// Try newspaper first (more metadata)
+"EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+
+// Playwright + trafilatura for JS content
+"EXTRACTOR_ORDER": ["playwright", "trafilatura"]
+```
+
+## Performance
+
+**Speed:** Fast (pure Python, in-memory processing)
+
+**Recommended concurrency:**
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura"],
+    "CONCURRENT_REQUESTS": 16,
+    "DOWNLOAD_DELAY": 1
+  }
+}
+```
+
+## When to Use
+
+### Use Trafilatura When:
+
+<Check>Need highest accuracy content extraction</Check>
+<Check>Dealing with complex HTML layouts</Check>
+<Check>Metadata is not critical</Check>
+<Check>Any text-based content (not just news)</Check>
+<Check>Want lightweight, fast extraction</Check>
+
+### Don't Use Trafilatura When:
+
+<Warning>Need rich metadata (keywords, summaries, images) - use newspaper</Warning>
+<Warning>E-commerce or structured data - use custom extractors</Warning>
+<Warning>JavaScript-rendered content - use playwright first</Warning>
+
+## Use with Playwright
+
+Trafilatura is the **recommended extractor** after Playwright rendering:
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".article-content",
+    "PLAYWRIGHT_DELAY": 3
+  }
+}
+```
+
+**Why:**
+- Playwright renders JavaScript → full HTML
+- Trafilatura extracts clean content from rendered HTML
+- Best accuracy for JS-heavy sites
+
+## Comparison with Newspaper
+
+| Feature | Trafilatura | Newspaper |
+|---------|-------------|----------|
+| **Accuracy** | Excellent | Good |
+| **Speed** | Fast | Fast |
+| **Metadata** | Basic | Rich (keywords, summary, images) |
+| **HTML Tolerance** | High (works on varied structures) | Medium (needs semantic HTML) |
+| **Best For** | Any text content | News/blogs |
+
+**Recommendation:** Use both with fallback
+
+```json
+"EXTRACTOR_ORDER": ["newspaper", "trafilatura"]
+```
+
+- Newspaper extracts rich metadata
+- Trafilatura catches pages newspaper misses
+
+## Debugging
+
+**Check if trafilatura succeeded:**
+
+```bash
+scrapai show spider 1 --project proj
+```
+
+Look for `source: trafilatura` in output.
+
+**Test extraction:**
+
+```bash
+# Download page
+scrapai inspect https://example.com/article --project proj
+
+# Test extraction
+scrapai crawl spider --limit 1 --project proj
+
+# View results
+scrapai show spider 1 --project proj
+```
+
+**If extraction fails:**
+1. Check if page has text content (not image-only)
+2. Try with Playwright if content is JS-rendered
+3. Use custom selectors if generic extraction doesn't work
+
+## Configuration Examples
+
+### Primary Extractor
+
+```json
+{
+  "name": "docs_site",
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura"],
+    "DOWNLOAD_DELAY": 0.5,
+    "CONCURRENT_REQUESTS": 16
+  }
+}
+```
+
+### With Newspaper Fallback
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura", "newspaper"],
+    "CONCURRENT_REQUESTS": 16
+  }
+}
+```
+
+### After Playwright Rendering
+
+```json
+{
+  "name": "js_heavy_site",
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "PLAYWRIGHT_WAIT_SELECTOR": ".content-loaded",
+    "PLAYWRIGHT_DELAY": 2,
+    "CONCURRENT_REQUESTS": 2,
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+### Documentation Site
+
+```json
+{
+  "name": "docs_python_org",
+  "source_url": "https://docs.python.org/",
+  "allowed_domains": ["docs.python.org"],
+  "start_urls": ["https://docs.python.org/3/"],
+  "rules": [
+    {
+      "allow": [".*"],
+      "callback": "parse_article"
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["trafilatura"],
+    "DOWNLOAD_DELAY": 1,
+    "CONCURRENT_REQUESTS": 8,
+    "ROBOTSTXT_OBEY": true
+  }
+}
+```
+
+**Why trafilatura for docs:**
+- Clean content extraction without navigation/sidebars
+- Works on varied doc site structures
+- Fast, reliable
+
+## Advanced Usage
+
+### Infinite Scroll with Trafilatura
+
+```json
+{
+  "settings": {
+    "EXTRACTOR_ORDER": ["playwright", "trafilatura"],
+    "INFINITE_SCROLL": true,
+    "MAX_SCROLLS": 10,
+    "PLAYWRIGHT_WAIT_SELECTOR": ".quote"
+  },
+  "rules": [
+    {"allow": [".*"], "follow": false}
+  ]
+}
+```
+
+**Behavior:**
+- Playwright scrolls page to load all content
+- Trafilatura extracts combined content from full page
+
+## Related
+
+- [Extractors Overview](/api/extractors-overview) - Strategy selection
+- [Newspaper Extractor](/api/newspaper) - Alternative generic extractor
+- [Playwright Extractor](/api/playwright) - Browser rendering
+- [Custom Extractors](/api/custom-extractors) - Site-specific extraction
+- [Settings](/api/settings) - Configuration options

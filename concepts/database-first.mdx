@@ -1,0 +1,558 @@
+---
+title: "Database-First Spider Management"
+description: "Why spiders live in the database, not in Python files"
+icon: "database"
+---
+
+ScrapAI stores spiders as **database rows**, not Python files. This architectural choice enables powerful management patterns impossible with file-based scrapers.
+
+## The Traditional Approach: File-Based Spiders
+
+In a typical Scrapy project:
+
+```python Traditional Scrapy Project
+project/
+├── spiders/
+│   ├── bbc_spider.py
+│   ├── cnn_spider.py
+│   ├── nytimes_spider.py
+│   ├── guardian_spider.py
+│   └── ... 96 more files
+├── settings.py
+└── scrapy.cfg
+```
+
+**Problems at scale**:
+
+<CardGroup cols={2}>
+  <Card title="No Central Inventory" icon="list">
+    Which spiders exist? Grep the filesystem. Which are active? Check each file.
+  </Card>
+  
+  <Card title="Hard to Batch Update" icon="pen-to-square">
+    Change DOWNLOAD_DELAY across 100 spiders? Edit 100 files or write a script.
+  </Card>
+  
+  <Card title="No Metadata" icon="tag">
+    When was this spider created? By whom? For what project? Add comments and hope.
+  </Card>
+  
+  <Card title="Code Drift" icon="code-fork">
+    5 developers write spiders in 5 different styles. No consistency, harder to review.
+  </Card>
+</CardGroup>
+
+## The ScrapAI Approach: Database-First
+
+```sql ScrapAI Database Schema
+spiders
+├── id (primary key)
+├── name (unique, indexed)
+├── allowed_domains (JSON)
+├── start_urls (JSON)
+├── source_url (text)
+├── active (boolean)
+├── project (string)
+├── callbacks_config (JSON)
+├── created_at (timestamp)
+└── updated_at (timestamp)
+
+spider_rules
+├── id (primary key)
+├── spider_id (foreign key)
+├── allow_patterns (JSON)
+├── deny_patterns (JSON)
+├── callback (string)
+├── follow (boolean)
+└── priority (integer)
+
+spider_settings
+├── id (primary key)
+├── spider_id (foreign key)
+├── key (string)
+├── value (string)
+└── type (string)
+```
+
+<Info>
+  **One spider class, many configurations**. The `DatabaseSpider` loads any config from the database at runtime.
+</Info>
+
+## Benefits of Database-First
+
+### 1. Central Inventory
+
+List all spiders with a single query:
+
+```bash CLI
+./scrapai spiders list --project news
+```
+
+```sql SQL
+SELECT name, active, created_at, updated_at 
+FROM spiders 
+WHERE project = 'news'
+ORDER BY created_at DESC;
+```
+
+**Output**:
+```
+Name            Active  Created              Updated
+─────────────────────────────────────────────────────
+bbc_co_uk       Yes     2026-01-15 10:23:11  2026-02-20 14:55:32
+cnn_com         Yes     2026-01-15 11:10:45  2026-01-15 11:10:45
+guardian_co_uk  No      2026-01-14 09:12:33  2026-02-18 16:22:10
+```
+
+No filesystem traversal, no parsing Python files, no guessing.
+
+### 2. Batch Updates
+
+Change settings across multiple spiders:
+
+<CodeGroup>
+```sql Direct SQL
+-- Increase delay for all news spiders
+UPDATE spider_settings 
+SET value = '2'
+WHERE key = 'DOWNLOAD_DELAY' 
+  AND spider_id IN (SELECT id FROM spiders WHERE project = 'news');
+```
+
+```python Python API
+from core.db import get_db
+from core.models import Spider, SpiderSetting
+
+db = next(get_db())
+
+# Disable all spiders in a project
+db.query(Spider).filter(Spider.project == "news").update({"active": False})
+db.commit()
+```
+
+```bash CLI
+# Enable Cloudflare bypass for a specific spider
+./scrapai db query "UPDATE spider_settings SET value = 'true' WHERE key = 'CLOUDFLARE_ENABLED' AND spider_id = (SELECT id FROM spiders WHERE name = 'bbc_co_uk')"
+```
+</CodeGroup>
+
+**With files**: Write a script to parse and edit 100 Python files. Hope regex doesn't break syntax.
+
+**With database**: One SQL query. Done.
+
+### 3. Rich Metadata
+
+Every spider tracks:
+
+<Tabs>
+  <Tab title="Temporal Data">
+    ```sql Temporal Queries
+    -- Spiders created in the last 30 days
+    SELECT name, created_at 
+    FROM spiders 
+    WHERE created_at > NOW() - INTERVAL '30 days';
+    
+    -- Spiders not updated in 90 days (stale?)
+    SELECT name, updated_at 
+    FROM spiders 
+    WHERE updated_at < NOW() - INTERVAL '90 days';
+    ```
+  </Tab>
+  
+  <Tab title="Project Organization">
+    ```sql Project Queries
+    -- Count spiders per project
+    SELECT project, COUNT(*) as spider_count
+    FROM spiders
+    GROUP BY project
+    ORDER BY spider_count DESC;
+    
+    -- Output:
+    -- news: 45 spiders
+    -- ecommerce: 23 spiders
+    -- forums: 12 spiders
+    ```
+  </Tab>
+  
+  <Tab title="Activity Status">
+    ```sql Activity Queries
+    -- Active vs inactive spiders
+    SELECT active, COUNT(*) as count
+    FROM spiders
+    GROUP BY active;
+    
+    -- Output:
+    -- Active: 78
+    -- Inactive: 22
+    ```
+  </Tab>
+</Tabs>
+
+### 4. Import/Export as Data
+
+Spiders are JSON-serializable data structures:
+
+<CodeGroup>
+```json Export a Spider
+{
+  "name": "bbc_co_uk",
+  "source_url": "https://bbc.co.uk/",
+  "allowed_domains": ["bbc.co.uk"],
+  "start_urls": ["https://www.bbc.co.uk/"],
+  "rules": [
+    {
+      "allow": ["/news/articles/.*"],
+      "callback": "parse_article"
+    }
+  ],
+  "settings": {
+    "EXTRACTOR_ORDER": ["newspaper", "trafilatura"],
+    "DOWNLOAD_DELAY": 1
+  }
+}
+```
+
+```bash Export Command
+# Export single spider
+./scrapai spiders export bbc_co_uk --project news > bbc_spider.json
+
+# Import to another project/database
+./scrapai spiders import bbc_spider.json --project news-backup
+```
+</CodeGroup>
+
+**Use cases**:
+- Share spider configs between projects
+- Version control configs (not code)
+- Backup/restore spider configurations
+- Distribute configs to other teams
+
+### 5. Consistency and Validation
+
+All configs go through the same validation pipeline:
+
+```python Validation via Pydantic
+from pydantic import BaseModel, Field, validator
+import re
+
+class SpiderConfig(BaseModel):
+    name: str = Field(pattern=r"^[a-zA-Z0-9_-]+$")  # Strict naming
+    allowed_domains: list[str] = Field(min_items=1)
+    start_urls: list[str] = Field(min_items=1)
+    rules: list[RuleConfig] = []
+    settings: dict = {}
+    
+    @validator("start_urls")
+    def validate_urls(cls, urls):
+        for url in urls:
+            if not url.startswith(("http://", "https://")):
+                raise ValueError(f"Invalid URL: {url}")
+            # Block private IPs
+            if any(ip in url for ip in ["127.0.0.1", "localhost", "10.", "192.168."]):
+                raise ValueError(f"Private IP blocked: {url}")
+        return urls
+```
+
+**Result**: Uniform structure, validated inputs, no malformed configs.
+
+## Database Schema Deep Dive
+
+### Spider Table
+
+<ParamField path="id" type="integer" required>
+  Primary key, auto-increment
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  Unique spider identifier. Must match `^[a-zA-Z0-9_-]+$`.
+  
+  **Example**: `bbc_co_uk`, `amazon_electronics`
+</ParamField>
+
+<ParamField path="allowed_domains" type="JSON" required>
+  List of domains the spider can crawl. Scrapy's domain restriction.
+  
+  **Example**: `["bbc.co.uk", "www.bbc.co.uk"]`
+</ParamField>
+
+<ParamField path="start_urls" type="JSON" required>
+  Initial URLs to start crawling from.
+  
+  **Example**: `["https://www.bbc.co.uk/news"]`
+</ParamField>
+
+<ParamField path="source_url" type="string">
+  The original URL provided by the user when creating the spider.
+  
+  **Example**: `https://bbc.co.uk/`
+</ParamField>
+
+<ParamField path="active" type="boolean" default="true">
+  Enable/disable spider without deletion. Inactive spiders are skipped.
+</ParamField>
+
+<ParamField path="project" type="string" default="default">
+  Project grouping for multi-project setups.
+  
+  **Example**: `news`, `ecommerce`, `research`
+</ParamField>
+
+<ParamField path="callbacks_config" type="JSON">
+  Custom callback definitions for non-article content (products, jobs, listings).
+  
+  ```json
+  {
+    "parse_product": {
+      "extract": {
+        "name": {"css": "h1.product-name::text"},
+        "price": {"css": "span.price::text"}
+      }
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField path="created_at" type="timestamp">
+  When the spider was created (auto-set).
+</ParamField>
+
+<ParamField path="updated_at" type="timestamp">
+  Last update timestamp (auto-updated on change).
+</ParamField>
+
+### SpiderRule Table
+
+Maps to Scrapy's `Rule` and `LinkExtractor`:
+
+```python Scrapy Equivalent
+Rule(
+    LinkExtractor(
+        allow=[r"/news/articles/.*"],
+        deny=[r"/news/.*#comments"]
+    ),
+    callback="parse_article",
+    follow=False
+)
+```
+
+**Database representation**:
+
+<ParamField path="allow_patterns" type="JSON">
+  Regex patterns to match URLs for crawling.
+  
+  **Example**: `["/news/articles/.*", "/sport/.*/articles/.*"]`
+</ParamField>
+
+<ParamField path="deny_patterns" type="JSON">
+  Regex patterns to exclude URLs.
+  
+  **Example**: `["/news/.*#comments", "/gallery/.*"]`
+</ParamField>
+
+<ParamField path="callback" type="string">
+  Callback method name (`parse_article`, `parse_product`, etc.) or `null` for link following only.
+</ParamField>
+
+<ParamField path="follow" type="boolean" default="true">
+  Whether to follow links matched by this rule.
+</ParamField>
+
+<ParamField path="priority" type="integer" default="0">
+  Rule execution order (higher priority first).
+</ParamField>
+
+### SpiderSetting Table
+
+Key-value pairs for Scrapy settings:
+
+<Tabs>
+  <Tab title="Common Settings">
+    | Key | Value Example | Description |
+    |-----|---------------|-------------|
+    | `EXTRACTOR_ORDER` | `["newspaper", "trafilatura"]` | Extraction fallback order |
+    | `DOWNLOAD_DELAY` | `2` | Seconds between requests |
+    | `CONCURRENT_REQUESTS` | `16` | Parallel request limit |
+    | `CLOUDFLARE_ENABLED` | `true` | Enable Cloudflare bypass |
+    | `ROBOTSTXT_OBEY` | `true` | Respect robots.txt |
+  </Tab>
+  
+  <Tab title="Advanced Settings">
+    | Key | Value Example | Description |
+    |-----|---------------|-------------|
+    | `CUSTOM_SELECTORS` | `{"title": "h1.title"}` | Custom CSS selectors |
+    | `PLAYWRIGHT_WAIT_SELECTOR` | `div.content` | Wait for element before extraction |
+    | `PLAYWRIGHT_DELAY` | `3` | Additional wait time (seconds) |
+    | `INFINITE_SCROLL` | `true` | Enable infinite scroll |
+    | `MAX_SCROLLS` | `10` | Max scroll iterations |
+  </Tab>
+</Tabs>
+
+## Querying the Database
+
+ScrapAI provides a safe SQL query interface:
+
+```bash Read-Only Queries
+# List all spiders
+./scrapai db query "SELECT name, project, active FROM spiders"
+
+# Count items per spider
+./scrapai db query "SELECT spider_id, COUNT(*) FROM scraped_items GROUP BY spider_id"
+
+# Find spiders with Cloudflare enabled
+./scrapai db query "SELECT s.name FROM spiders s JOIN spider_settings ss ON s.id = ss.spider_id WHERE ss.key = 'CLOUDFLARE_ENABLED' AND ss.value = 'true'"
+```
+
+<Warning>
+  **UPDATE/DELETE queries require confirmation** via `--confirm` flag with row count to prevent accidental data loss.
+  
+  ```bash
+  ./scrapai db query "DELETE FROM spiders WHERE name = 'test_spider'" --confirm 1
+  ```
+</Warning>
+
+## Real-World Patterns
+
+### Pattern 1: Fleet Health Check
+
+Run test crawls on all spiders monthly:
+
+```bash Test All Spiders
+# Get active spiders
+./scrapai db query "SELECT name FROM spiders WHERE active = true AND project = 'news'" > active_spiders.txt
+
+# Test each spider (5 sample URLs)
+while read spider; do
+  echo "Testing $spider..."
+  ./scrapai crawl "$spider" --project news --limit 5
+done < active_spiders.txt
+
+# Check for extraction failures
+./scrapai db query "SELECT spider_id, COUNT(*) FROM scraped_items WHERE scraped_at > NOW() - INTERVAL '1 day' GROUP BY spider_id HAVING COUNT(*) = 0"
+```
+
+### Pattern 2: Bulk Configuration Changes
+
+```sql Rate Limit All Spiders
+-- Increase delay for aggressive sites
+UPDATE spider_settings 
+SET value = '3'
+WHERE key = 'DOWNLOAD_DELAY' 
+  AND spider_id IN (
+    SELECT id FROM spiders 
+    WHERE allowed_domains::text LIKE '%amazon%' 
+       OR allowed_domains::text LIKE '%ebay%'
+  );
+```
+
+### Pattern 3: Spider Versioning
+
+Export before making changes:
+
+```bash Backup Before Update
+# Export current config
+./scrapai spiders export bbc_co_uk --project news > bbc_v1.json
+
+# Make changes (via agent or manual edit)
+# ... modify rules, settings, etc.
+
+# Test new version
+./scrapai crawl bbc_co_uk --project news --limit 10
+
+# Rollback if needed
+./scrapai spiders import bbc_v1.json --project news
+```
+
+### Pattern 4: Multi-Project Management
+
+```bash Project Isolation
+# Create separate projects for different use cases
+./scrapai spiders import news_spider.json --project production
+./scrapai spiders import news_spider.json --project staging
+./scrapai spiders import news_spider.json --project testing
+
+# Each project has independent configs and data
+./scrapai crawl news_spider --project production
+./scrapai crawl news_spider --project testing --limit 5
+```
+
+## PostgreSQL vs SQLite
+
+<Tabs>
+  <Tab title="SQLite (Default)">
+    **Best for**:
+    - Single-user development
+    - Small to medium scale (< 100 spiders)
+    - Simple deployment (no external database)
+    
+    **Performance**:
+    - Read-heavy: Excellent (with WAL mode)
+    - Write-heavy: Good (sequential writes)
+    - Concurrent access: Limited (single writer)
+    
+    **Configuration**:
+    ```bash .env
+    DATABASE_URL=sqlite:///scrapai.db
+    ```
+    
+    ScrapAI auto-enables WAL mode for better concurrency:
+    ```python
+    cursor.execute("PRAGMA journal_mode=WAL")
+    ```
+  </Tab>
+  
+  <Tab title="PostgreSQL (Production)">
+    **Best for**:
+    - Multi-user teams
+    - Large scale (100+ spiders)
+    - High concurrency (parallel crawls)
+    
+    **Performance**:
+    - Read-heavy: Excellent
+    - Write-heavy: Excellent
+    - Concurrent access: Excellent (MVCC)
+    
+    **Configuration**:
+    ```bash .env
+    DATABASE_URL=postgresql://user:password@localhost:5432/scrapai
+    ```
+    
+    **Migration**:
+    ```bash
+    # Update .env with PostgreSQL URL
+    ./scrapai db migrate
+    ./scrapai db transfer sqlite:///scrapai.db
+    ```
+  </Tab>
+</Tabs>
+
+## Key Takeaways
+
+<CardGroup cols={2}>
+  <Card title="Spiders are Data" icon="table">
+    Not files, not code—structured data in a database. Query, update, export like any other dataset.
+  </Card>
+  
+  <Card title="One Spider Class" icon="code">
+    The `DatabaseSpider` loads any config at runtime. No code generation, no Python files per site.
+  </Card>
+  
+  <Card title="Rich Metadata" icon="tags">
+    Track creation time, update time, project, activity status. Impossible with files.
+  </Card>
+  
+  <Card title="Batch Operations" icon="layer-group">
+    Change settings across 100 spiders with one SQL query. Update, disable, export in bulk.
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Spider Models" icon="database" href="/core/models">
+    Detailed schema reference for Spider, SpiderRule, and SpiderSetting
+  </Card>
+  
+  <Card title="CLI Reference" icon="terminal" href="/cli/spiders">
+    Commands for spider management: list, import, export, delete
+  </Card>
+</CardGroup>

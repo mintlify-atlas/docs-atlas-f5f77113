@@ -1,0 +1,524 @@
+---
+title: "Inspect Command"
+description: "Analyze websites to help create scrapers"
+---
+
+The `inspect` command fetches and analyzes a website to help you understand its structure and build scraper configurations. It supports three modes: lightweight HTTP, browser-based (for JavaScript sites), and Cloudflare bypass.
+
+## inspect
+
+Inspect a website URL.
+
+### Syntax
+
+```bash
+./scrapai inspect <url> [options]
+```
+
+### Arguments
+
+<ParamField path="url" type="string" required>
+  Website URL to inspect.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name (used for saving analysis files).
+</ParamField>
+
+<ParamField path="--output-dir" type="string">
+  Directory to save analysis files. Defaults to `data/<project>/inspect/`.
+</ParamField>
+
+<ParamField path="--proxy-type" type="choice" default="auto">
+  Proxy type: `none`, `static`, `residential`, `auto`.
+</ParamField>
+
+<ParamField path="--no-save-html" type="flag">
+  Do not save the full HTML to disk.
+</ParamField>
+
+<ParamField path="--browser" type="flag">
+  Use browser for JavaScript-rendered sites (Playwright).
+</ParamField>
+
+<ParamField path="--cloudflare" type="flag">
+  Use Cloudflare bypass mode (nodriver).
+</ParamField>
+
+<ParamField path="--log-level" type="choice" default="info">
+  Logging level: `debug`, `info`, `warning`, `error`, `critical`.
+</ParamField>
+
+<ParamField path="--log-file" type="string">
+  Path to log file.
+</ParamField>
+
+### Modes
+
+#### HTTP Mode (Default)
+
+Lightweight HTTP fetch with requests library:
+
+```bash
+./scrapai inspect https://example.com --project myproject
+```
+
+**Use for:**
+- Simple websites with server-side rendering
+- Static HTML sites
+- Fastest inspection method
+
+**Output:**
+
+```bash
+⚡ Using lightweight HTTP fetch
+
+Fetching: https://example.com
+Status: 200
+Content-Type: text/html; charset=utf-8
+Content-Length: 45,231 bytes
+
+Analysis saved to: data/myproject/inspect/example_com/
+  • page.html (full HTML)
+  • metadata.json (headers, status, timing)
+```
+
+#### Browser Mode
+
+Use Playwright for JavaScript-heavy sites:
+
+```bash
+./scrapai inspect https://spa-site.com --project myproject --browser
+```
+
+**Use for:**
+- Single-page applications (React, Vue, Angular)
+- Sites with JavaScript-rendered content
+- Dynamic content loading
+
+**Output:**
+
+```bash
+🌐 Using browser for JS-rendered content
+
+Launching browser...
+Navigating to: https://spa-site.com
+Waiting for page load...
+Content rendered!
+
+Analysis saved to: data/myproject/inspect/spa_site_com/
+  • page.html (rendered HTML after JS execution)
+  • screenshot.png (page screenshot)
+  • metadata.json
+```
+
+<Note>
+Browser mode waits for JavaScript to execute and renders the final DOM. This is the HTML you should analyze for extraction selectors.
+</Note>
+
+#### Cloudflare Mode
+
+Bypass Cloudflare protection with nodriver:
+
+```bash
+./scrapai inspect https://protected-site.com --project myproject --cloudflare
+```
+
+**Use for:**
+- Sites with Cloudflare challenge pages
+- Sites requiring browser fingerprinting
+- Sites that block headless browsers
+
+**Linux (headless server):**
+
+Requires xvfb:
+
+```bash
+xvfb-run -a ./scrapai inspect https://protected-site.com --cloudflare
+```
+
+Or install xvfb:
+
+```bash
+sudo apt-get install xvfb
+```
+
+**macOS/Windows:**
+
+```bash
+🖥️  Display available - using native browser for Cloudflare bypass
+
+Solving Cloudflare challenge...
+Challenge solved!
+Extracting cookies...
+
+Analysis saved to: data/myproject/inspect/protected_site_com/
+  • page.html (final HTML after bypass)
+  • cookies.json (Cloudflare session cookies)
+  • metadata.json
+```
+
+<Warning>
+Cannot use both `--browser` and `--cloudflare` flags together. Choose one based on your needs.
+</Warning>
+
+### Saved Files
+
+Inspection saves files to `data/<project>/inspect/<domain>/`:
+
+#### page.html
+
+Full HTML content:
+- **HTTP mode**: Raw HTML from server
+- **Browser mode**: Rendered HTML after JavaScript execution
+- **Cloudflare mode**: Final HTML after bypass
+
+Use this file with the `analyze` command to discover CSS selectors.
+
+#### metadata.json
+
+Request metadata:
+
+```json
+{
+  "url": "https://example.com",
+  "status_code": 200,
+  "headers": {
+    "content-type": "text/html; charset=utf-8",
+    "server": "nginx",
+    "content-length": "45231"
+  },
+  "fetch_time": "2026-02-28T15:30:42",
+  "elapsed_seconds": 0.823,
+  "mode": "http"
+}
+```
+
+#### cookies.json (Cloudflare mode)
+
+Cloudflare session cookies:
+
+```json
+{
+  "cf_clearance": "abc123...",
+  "__cf_bm": "xyz789...",
+  "expires_at": "2026-02-28T15:40:42"
+}
+```
+
+These cookies can be used in spider settings to bypass Cloudflare without browser on every request.
+
+#### screenshot.png (Browser mode)
+
+Full-page screenshot for visual verification.
+
+### Proxy Support
+
+Specify proxy type for inspection:
+
+```bash
+# No proxy
+./scrapai inspect https://example.com --proxy-type none
+
+# Datacenter proxy
+./scrapai inspect https://example.com --proxy-type static
+
+# Residential proxy
+./scrapai inspect https://example.com --proxy-type residential
+
+# Auto (smart escalation)
+./scrapai inspect https://example.com --proxy-type auto
+```
+
+Requires proxy configuration in `.env`.
+
+### Skip HTML Saving
+
+For quick inspection without saving files:
+
+```bash
+./scrapai inspect https://example.com --no-save-html
+```
+
+Prints analysis to console only, doesn't write files.
+
+### Logging
+
+Control logging verbosity:
+
+```bash
+# Debug logging
+./scrapai inspect https://example.com --log-level debug
+
+# Save logs to file
+./scrapai inspect https://example.com --log-file inspect.log
+```
+
+## analyze
+
+Analyze saved HTML for CSS selector discovery (separate command, not a subcommand of inspect).
+
+### Syntax
+
+```bash
+./scrapai analyze <html_file> [options]
+```
+
+### Arguments
+
+<ParamField path="html_file" type="string" required>
+  Path to HTML file to analyze.
+</ParamField>
+
+### Options
+
+<ParamField path="--test" type="string">
+  Test a specific CSS selector.
+</ParamField>
+
+<ParamField path="--find" type="string">
+  Find elements by keyword (searches classes and IDs).
+</ParamField>
+
+### Examples
+
+```bash
+# Analyze HTML structure
+./scrapai analyze data/news/inspect/example_com/page.html
+
+# Test a CSS selector
+./scrapai analyze page.html --test "article.post h1.title"
+
+# Find elements with keyword
+./scrapai analyze page.html --find "author"
+```
+
+### Output (Analysis Mode)
+
+```bash
+$ ./scrapai analyze page.html
+📄 Analyzing: page.html
+📊 HTML size: 45231 bytes
+
+💡 TIP: Use --find 'keyword' to search for specific elements
+
+============================================================
+🏷️  HEADERS (h1, h2)
+============================================================
+
+H1 - Found 1:
+  [1] h1.article-headline
+      Text: UK economy grows 0.4% in February
+
+H2 - Found 5:
+  [1] h2.section-title
+      Text: Economic Growth
+  [2] h2.section-title
+      Text: Market Response
+  ...
+
+============================================================
+📝 CONTENT CONTAINERS
+============================================================
+
+  [1] article.main-article
+      Size: 3,245 chars
+      Preview: The UK economy grew by 0.4% in February, official figures show...
+
+  [2] div.article-body
+      Size: 2,891 chars
+      Preview: Economists had expected growth of 0.2%, making this a positive...
+
+============================================================
+📅 DATES
+============================================================
+  time.published-date: February 28, 2026
+  span.updated-time: Updated 2 hours ago
+
+============================================================
+✍️  AUTHORS
+============================================================
+  span.author-name: Economics Reporter
+  a.byline: By John Smith
+
+============================================================
+```
+
+### Test a Selector
+
+```bash
+$ ./scrapai analyze page.html --test "h1.article-headline::text"
+
+🔍 Testing selector: h1.article-headline::text
+============================================================
+✓ Found 1 element(s)
+
+[1] h1
+    Classes: ['article-headline']
+    Text (62 chars): UK economy grows 0.4% in February
+```
+
+<Tip>
+Use `::text` pseudo-selector to extract text content instead of HTML.
+</Tip>
+
+### Find by Keyword
+
+```bash
+$ ./scrapai analyze page.html --find "author"
+
+🔎 Finding elements with keyword: 'author'
+============================================================
+
+  span.author-name
+    Text: Economics Reporter
+
+  div.author-bio
+    Text: Economics Reporter specializes in UK economic policy and analysis.
+
+  a.author-profile
+    Text: View profile
+
+✓ Found 3 elements
+```
+
+## Workflow: Inspect to Spider Config
+
+### 1. Inspect the Site
+
+```bash
+./scrapai inspect https://example.com --project myproject --browser
+```
+
+### 2. Analyze HTML Structure
+
+```bash
+./scrapai analyze data/myproject/inspect/example_com/page.html
+```
+
+Note the CSS selectors for title, content, author, etc.
+
+### 3. Test Selectors
+
+```bash
+./scrapai analyze page.html --test "h1.article-title::text"
+./scrapai analyze page.html --test "div.article-body"
+./scrapai analyze page.html --test "span.author-name::text"
+```
+
+### 4. Create Spider Config
+
+Write `spider.json` using discovered selectors:
+
+```json
+{
+  "name": "example_com",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/articles"],
+  "rules": [
+    {
+      "allow": ["/article/[^/]+$"],
+      "callback": "parse_article",
+      "follow": false
+    }
+  ],
+  "callbacks": {
+    "parse_article": {
+      "extract": {
+        "title": {"css": "h1.article-title::text"},
+        "content": {"css": "div.article-body", "get": "all_text"},
+        "author": {"css": "span.author-name::text"}
+      }
+    }
+  }
+}
+```
+
+### 5. Import and Test
+
+```bash
+./scrapai spiders import spider.json --project myproject
+./scrapai crawl example_com --project myproject --limit 5
+./scrapai show example_com --project myproject
+```
+
+## Platform Notes
+
+### Linux (Headless Servers)
+
+For Cloudflare bypass on headless servers:
+
+```bash
+# Install xvfb
+sudo apt-get install xvfb
+
+# Run with xvfb
+xvfb-run -a ./scrapai inspect https://site.com --cloudflare
+```
+
+Or check if xvfb is available:
+
+```bash
+which xvfb-run
+```
+
+### macOS/Windows
+
+Browser and Cloudflare modes use native display automatically.
+
+## Troubleshooting
+
+### Cloudflare Mode: No Display Available
+
+```bash
+❌ ERROR: Cloudflare bypass requires a display
+   No display available and xvfb not installed
+```
+
+**Solution:**
+
+```bash
+sudo apt-get install xvfb
+xvfb-run -a ./scrapai inspect https://site.com --cloudflare
+```
+
+### Browser Launch Failed
+
+```bash
+Playwright Error: Executable doesn't exist at /path/to/chromium
+```
+
+**Solution:**
+
+```bash
+.venv/bin/python -m playwright install chromium
+```
+
+### Invalid URL
+
+```bash
+Invalid URL scheme: must be http or https
+```
+
+**Solution:** Ensure URL includes protocol:
+
+```bash
+./scrapai inspect https://example.com  # Correct
+./scrapai inspect example.com          # Wrong
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Spider Management" icon="spider" href="/cli/spiders">
+  Import your spider configuration
+</Card>
+
+<Card title="Crawl Commands" icon="play" href="/cli/crawl">
+  Test your spider with a crawl
+</Card>
+
+</CardGroup>

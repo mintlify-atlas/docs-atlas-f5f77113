@@ -1,0 +1,426 @@
+---
+title: "Crawl Commands"
+description: "Run spiders in test and production mode with checkpoint support"
+---
+
+Crawl commands execute spiders from the database. ScrapAI supports two modes: **test mode** (limited items, saved to database) and **production mode** (full crawl, exported to files with checkpoint support).
+
+## crawl
+
+Run a spider by name.
+
+### Syntax
+
+```bash
+./scrapai crawl <spider> --project <name> [options]
+```
+
+### Arguments
+
+<ParamField path="spider" type="string" required>
+  Spider name (from database).
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" required>
+  Project name containing the spider.
+</ParamField>
+
+<ParamField path="--limit" type="integer">
+  Limit number of items to scrape. Enables **test mode** when specified.
+</ParamField>
+
+<ParamField path="--output" type="string">
+  Custom output file path. If not specified, uses timestamped filename in `data/<project>/<spider>/crawls/`.
+</ParamField>
+
+<ParamField path="--timeout" type="integer">
+  Maximum runtime in seconds. Triggers graceful shutdown when exceeded.
+</ParamField>
+
+<ParamField path="--proxy-type" type="choice" default="auto">
+  Proxy strategy:
+  - `auto`: Smart escalation with expert-in-the-loop (default)
+  - `datacenter`: Use datacenter proxy explicitly
+  - `residential`: Use residential proxy explicitly
+</ParamField>
+
+### Test Mode (with --limit)
+
+Limited crawl for testing and verification:
+
+```bash
+./scrapai crawl bbc_co_uk --project news --limit 5
+```
+
+**Behavior:**
+- Stops after scraping N items
+- Saves items to **database** (`scraped_items` table)
+- No HTML content stored (smaller database)
+- Use `show` command to view results
+- No checkpoint (starts fresh each time)
+
+**Output:**
+
+```bash
+🚀 Running DB spider: bbc_co_uk
+🔄 Proxy mode: auto (smart escalation with expert-in-the-loop)
+🧪 Test mode: Saving to database (limit: 5 items)
+   Use './scrapai show bbc_co_uk' to verify results
+
+[Scrapy crawl output...]
+
+2026-02-28 15:30:42 [scrapy.core.engine] INFO: Spider closed (closespider_itemcount)
+```
+
+<Tip>
+Use test mode to verify spider configuration before running a full production crawl.
+</Tip>
+
+### Production Mode (no limit)
+
+Full crawl with checkpoint support:
+
+```bash
+./scrapai crawl bbc_co_uk --project news
+```
+
+**Behavior:**
+- Crawls all matching URLs
+- Exports to **timestamped JSONL file**: `data/news/bbc_co_uk/crawls/crawl_28022026_153042.jsonl`
+- Includes full HTML content
+- Database writes disabled (performance)
+- **Checkpoint enabled**: Press Ctrl+C to pause, run same command to resume
+
+**Output:**
+
+```bash
+🚀 Running DB spider: bbc_co_uk
+🔄 Proxy mode: auto (smart escalation with expert-in-the-loop)
+📁 Production mode: Exporting to files (database disabled)
+💾 Checkpoint enabled: data/news/bbc_co_uk/checkpoint
+   Press Ctrl+C to pause, run same command to resume
+   Output: data/news/bbc_co_uk/crawls/crawl_28022026_153042.jsonl (includes HTML)
+
+[Scrapy crawl output...]
+
+2026-02-28 17:45:30 [scrapy.core.engine] INFO: Spider closed (finished)
+✓ Checkpoint cleaned up (successful completion)
+```
+
+### Checkpoint Pause/Resume
+
+Press `Ctrl+C` during a production crawl to pause:
+
+```bash
+# Start crawl
+./scrapai crawl bbc_co_uk --project news
+
+# Press Ctrl+C after 30 minutes
+^C
+2026-02-28 16:00:15 [scrapy.core.engine] INFO: Spider closed (shutdown)
+```
+
+Checkpoint is saved at `data/news/bbc_co_uk/checkpoint/`. Resume by running the same command:
+
+```bash
+./scrapai crawl bbc_co_uk --project news
+🚀 Running DB spider: bbc_co_uk
+💾 Checkpoint enabled: data/news/bbc_co_uk/checkpoint
+   Resuming from previous crawl...
+```
+
+<Note>
+Checkpoint stores:
+- URL queue state
+- Visited URLs (for deduplication)
+- Spider state variables
+- Proxy type used (if proxy type changes, checkpoint is cleared)
+</Note>
+
+### Proxy Modes
+
+#### Auto (Smart Escalation)
+
+Default behavior. Starts with direct connections, escalates to proxy if blocked:
+
+```bash
+./scrapai crawl myspider --project myproject --proxy-type auto
+```
+
+- First request: Direct connection
+- If blocked (403/429): Retry via datacenter proxy
+- Domain remembered for subsequent crawls
+- Residential proxy requires explicit opt-in
+
+#### Datacenter Proxy
+
+Use datacenter proxy for all requests:
+
+```bash
+./scrapai crawl myspider --project myproject --proxy-type datacenter
+```
+
+Requires proxy configuration in `.env`:
+
+```bash
+DATACENTER_PROXY_USERNAME=your_username
+DATACENTER_PROXY_PASSWORD=your_password
+DATACENTER_PROXY_HOST=proxy.example.com
+DATACENTER_PROXY_PORT=10000
+```
+
+#### Residential Proxy
+
+Use residential proxy for all requests (expensive, use sparingly):
+
+```bash
+./scrapai crawl myspider --project myproject --proxy-type residential
+```
+
+Requires residential proxy configuration in `.env`.
+
+<Warning>
+Changing proxy type mid-crawl clears the checkpoint to ensure all URLs are retried with the new proxy.
+</Warning>
+
+### Timeout
+
+Set maximum runtime for long crawls:
+
+```bash
+# Max 2 hours (7200 seconds)
+./scrapai crawl myspider --project myproject --timeout 7200
+```
+
+**Output:**
+
+```bash
+⏱️  Max runtime: 2.0 hours (graceful stop)
+```
+
+When timeout is reached, Scrapy triggers graceful shutdown (finishes in-flight requests, saves checkpoint).
+
+### Cloudflare Bypass
+
+For spiders with `CLOUDFLARE_ENABLED: true` in settings:
+
+```bash
+./scrapai crawl cloudflare_spider --project myproject
+```
+
+**Linux (headless server):**
+
+```bash
+🖥️  Headless environment detected - using xvfb for Cloudflare bypass
+```
+
+Requires `xvfb` installed:
+
+```bash
+sudo apt-get install xvfb
+```
+
+ScrapAI automatically wraps the command with `xvfb-run -a` when needed.
+
+**macOS/Windows:**
+
+```bash
+🖥️  Display available - using native browser for Cloudflare bypass
+```
+
+Uses system display for browser automation.
+
+### Sitemap Spider
+
+For spiders with `USE_SITEMAP: true` in settings:
+
+```bash
+🗺️  Using sitemap spider
+```
+
+Crawls from XML sitemap instead of following links. Faster for sites with good sitemaps.
+
+## crawl-all
+
+Run all active spiders in a project sequentially.
+
+### Syntax
+
+```bash
+./scrapai crawl-all --project <name> [--limit <N>]
+```
+
+### Options
+
+<ParamField path="--project" type="string" required>
+  Project name.
+</ParamField>
+
+<ParamField path="--limit" type="integer">
+  Limit items per spider (test mode).
+</ParamField>
+
+### Example
+
+```bash
+./scrapai crawl-all --project news --limit 10
+```
+
+**Output:**
+
+```bash
+🚀 Running all spiders for project: news
+🕷️  Spiders: bbc_co_uk, cnn_com, reuters_com
+
+==================================================
+Running: bbc_co_uk
+==================================================
+🚀 Running DB spider: bbc_co_uk
+[...]
+
+==================================================
+Running: cnn_com
+==================================================
+🚀 Running DB spider: cnn_com
+[...]
+
+==================================================
+Running: reuters_com
+==================================================
+🚀 Running DB spider: reuters_com
+[...]
+```
+
+<Tip>
+For parallel execution, use GNU parallel with `bin/parallel-crawl <project>`.
+</Tip>
+
+## Output Formats
+
+### JSONL (Production)
+
+Each line is a JSON object:
+
+```jsonl
+{"url": "https://bbc.co.uk/news/article-1", "title": "Article Title", "content": "...", "html": "<!DOCTYPE html>...", "scraped_at": "2026-02-28T15:30:42"}
+{"url": "https://bbc.co.uk/news/article-2", "title": "Another Article", "content": "...", "html": "<!DOCTYPE html>...", "scraped_at": "2026-02-28T15:31:15"}
+```
+
+### Database (Test Mode)
+
+Stored in `scraped_items` table:
+
+```sql
+SELECT id, url, title, scraped_at 
+FROM scraped_items 
+WHERE spider_id = (SELECT id FROM spiders WHERE name = 'bbc_co_uk');
+```
+
+## Performance Tips
+
+### Concurrent Requests
+
+Adjust in spider settings:
+
+```json
+{
+  "settings": {
+    "CONCURRENT_REQUESTS": 16
+  }
+}
+```
+
+Default: 8. Higher values = faster crawls, but risk IP bans.
+
+### Download Delay
+
+Polite crawling delay between requests:
+
+```json
+{
+  "settings": {
+    "DOWNLOAD_DELAY": 2
+  }
+}
+```
+
+Default: 0. Recommended: 1-3 seconds for aggressive crawling, 5+ for polite crawling.
+
+### Incremental Crawling
+
+Enable DeltaFetch to skip already-scraped URLs:
+
+```json
+{
+  "settings": {
+    "DELTAFETCH_ENABLED": true
+  }
+}
+```
+
+Reduces bandwidth by 80-90% on routine re-crawls.
+
+## Troubleshooting
+
+### Spider Not Found
+
+```bash
+❌ Spider 'myspider' not found in database.
+```
+
+**Solution:** Import the spider first:
+
+```bash
+./scrapai spiders import myspider.json --project myproject
+./scrapai spiders list --project myproject
+```
+
+### Permission Denied (Output File)
+
+```bash
+PermissionError: [Errno 13] Permission denied: 'data/news/spider/crawls/crawl.jsonl'
+```
+
+**Solution:** Check `DATA_DIR` permissions:
+
+```bash
+ls -la data/
+chmod -R u+w data/
+```
+
+### Cloudflare Bypass Failed
+
+```bash
+⚠️  WARNING: Cloudflare bypass enabled but no display available and xvfb not installed
+```
+
+**Solution (Linux):**
+
+```bash
+sudo apt-get install xvfb
+```
+
+### Checkpoint Corruption
+
+If resume fails with errors:
+
+```bash
+rm -rf data/<project>/<spider>/checkpoint
+./scrapai crawl <spider> --project <project>
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="View Scraped Data" icon="eye" href="/cli/data">
+  Inspect and export crawl results
+</Card>
+
+<Card title="Queue Management" icon="list" href="/cli/queue">
+  Batch process multiple websites
+</Card>
+
+</CardGroup>

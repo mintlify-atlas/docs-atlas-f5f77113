@@ -1,0 +1,280 @@
+---
+title: "Setup & Verification"
+description: "Installation, environment setup, and verification commands"
+---
+
+The setup commands initialize your ScrapAI environment, install dependencies, and verify everything is working correctly.
+
+## setup
+
+Install virtual environment, dependencies, and initialize database.
+
+### Syntax
+
+```bash
+./scrapai setup [--skip-deps]
+```
+
+### Options
+
+<ParamField path="--skip-deps" type="flag">
+  Skip dependency installation (useful when re-running setup after manual changes)
+</ParamField>
+
+### What It Does
+
+1. **Creates virtual environment** at `.venv/` (skips if exists)
+2. **Installs Python dependencies** from `requirements.txt`
+3. **Installs Playwright Chromium** for browser automation
+4. **Creates `.env` file** from `.env.example` (if missing)
+5. **Tests data directory permissions** by writing a test file
+6. **Runs database migrations** via Alembic
+7. **Configures Claude Code permissions** (if using Claude Code agent)
+
+### Output
+
+```bash
+$ ./scrapai setup
+🚀 Setting up ScrapAI environment...
+📦 Creating virtual environment...
+✅ Virtual environment created
+📋 Installing requirements...
+✅ Requirements installed
+🌐 Installing Playwright Chromium browser...
+✅ Playwright Chromium installed
+📝 Creating .env from .env.example...
+✅ .env file created (using SQLite by default)
+📁 Checking data directory permissions...
+✅ Have permission to write to data directory: ./data
+🗄️  Initializing database...
+✅ Database initialized with migrations
+🔧 Configuring Claude Code permissions...
+✅ Claude Code permissions configured
+🎉 ScrapAI setup complete!
+📝 You can now:
+   • List spiders: ./scrapai spiders list --project <name>
+   • Import spiders: ./scrapai spiders import <file> --project <name>
+   • Run crawls: ./scrapai crawl <spider_name> --project <name>
+```
+
+### Platform Notes
+
+#### Linux
+
+Playwright Chromium requires system dependencies. If browser fails to launch:
+
+```bash
+sudo .venv/bin/python -m playwright install-deps chromium
+```
+
+<Warning>
+This command requires `sudo` as it installs system packages (libglib, libnss3, etc.).
+</Warning>
+
+#### Windows
+
+Use `scrapai` or `scrapai.bat` instead of `./scrapai`:
+
+```bash
+scrapai setup
+```
+
+### Skip Dependencies
+
+If you've already installed dependencies manually or made changes:
+
+```bash
+./scrapai setup --skip-deps
+```
+
+This runs migrations and permission checks without reinstalling packages.
+
+## verify
+
+Verify environment setup without installing anything.
+
+### Syntax
+
+```bash
+./scrapai verify
+```
+
+### What It Checks
+
+1. **Virtual environment exists** at `.venv/`
+2. **Core dependencies installed** (scrapy, sqlalchemy, alembic)
+3. **Database initialized** (checks current Alembic revision)
+
+### Output
+
+#### Success
+
+```bash
+$ ./scrapai verify
+🔍 Verifying ScrapAI environment...
+
+✅ Virtual environment exists
+✅ Core dependencies installed
+✅ Database initialized
+
+🎉 Environment is ready!
+📝 You can now:
+   • List spiders: ./scrapai spiders list --project <name>
+   • Import spiders: ./scrapai spiders import <file> --project <name>
+   • Run crawls: ./scrapai crawl <spider_name> --project <name>
+```
+
+#### Missing Setup
+
+```bash
+$ ./scrapai verify
+🔍 Verifying ScrapAI environment...
+
+❌ Virtual environment not found
+   Run: ./scrapai setup
+
+⚠️  Environment setup incomplete
+   Run: ./scrapai setup
+```
+
+### Use Cases
+
+- **After cloning repository**: Verify setup before starting work
+- **CI/CD pipelines**: Check environment before running tests
+- **Troubleshooting**: Diagnose setup issues without modifying anything
+
+## Claude Code Permissions
+
+The setup command configures Claude Code agent permissions in `.claude/settings.local.json`.
+
+### Allow List
+
+Commands and operations the agent **can** perform:
+
+```json
+[
+  "Read",
+  "Write",
+  "Edit",
+  "Update",
+  "Glob",
+  "Grep",
+  "Bash(./scrapai:*)",
+  "Bash(source:*)",
+  "Bash(sqlite3:*)",
+  "Bash(psql:*)",
+  "Bash(xvfb-run:*)"
+]
+```
+
+### Deny List
+
+Commands and operations the agent **cannot** perform:
+
+```json
+[
+  "Edit(scrapai)",
+  "Update(scrapai)",
+  "Edit(.claude/*)",
+  "Update(.claude/*)",
+  "Write(**/*.py)",
+  "Edit(**/*.py)",
+  "Update(**/*.py)",
+  "MultiEdit(**/*.py)",
+  "Write(.env)",
+  "Write(secrets/**)",
+  "Write(config/**/*.key)",
+  "Write(**/*password*)",
+  "Write(**/*secret*)",
+  "WebFetch",
+  "WebSearch",
+  "Bash(rm:*)"
+]
+```
+
+<Note>
+These permissions ensure the agent writes **config** (JSON), not **code** (Python). This is a core security principle of ScrapAI's agent safety model.
+</Note>
+
+## Environment Variables
+
+The `.env` file created by setup:
+
+```bash
+# Data directory (default: ./data)
+DATA_DIR=./data
+
+# Database (default: SQLite)
+DATABASE_URL=sqlite:///scrapai.db
+
+# For PostgreSQL:
+# DATABASE_URL=postgresql://user:password@localhost:5432/scrapai
+
+# Proxy settings (optional)
+DATACENTER_PROXY_USERNAME=
+DATACENTER_PROXY_PASSWORD=
+DATACENTER_PROXY_HOST=
+DATACENTER_PROXY_PORT=
+
+RESIDENTIAL_PROXY_USERNAME=
+RESIDENTIAL_PROXY_PASSWORD=
+RESIDENTIAL_PROXY_HOST=
+RESIDENTIAL_PROXY_PORT=
+
+# S3 storage (optional, for Airflow)
+S3_ENDPOINT=
+S3_BUCKET=
+```
+
+## Troubleshooting
+
+### Permission Denied (Linux/macOS)
+
+Make the script executable:
+
+```bash
+chmod +x scrapai
+```
+
+### Python Version
+
+Requires Python 3.9 or higher:
+
+```bash
+python --version  # or python3 --version
+```
+
+### Virtual Environment Issues
+
+Delete and recreate:
+
+```bash
+rm -rf .venv
+./scrapai setup
+```
+
+### Database Migration Errors
+
+Check `DATABASE_URL` in `.env` and ensure database is accessible:
+
+```bash
+# For SQLite (default)
+ls -la scrapai.db
+
+# For PostgreSQL
+psql $DATABASE_URL -c "SELECT 1"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Spider Management" icon="spider" href="/cli/spiders">
+  Import and manage spider configurations
+</Card>
+
+<Card title="Crawling" icon="globe" href="/cli/crawl">
+  Run your first test crawl
+</Card>
+
+</CardGroup>

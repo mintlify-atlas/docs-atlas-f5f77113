@@ -1,0 +1,450 @@
+---
+title: Custom Callbacks & Field Extraction
+description: Extract structured data from products, jobs, listings, forums, and more
+---
+
+Extract custom fields from any structured data - not just articles. Perfect for e-commerce, job boards, real estate, forums, and any non-article content.
+
+## When to Use
+
+<Tabs>
+<Tab title="Use Callbacks For">
+**Custom callbacks are ideal for:**
+- E-commerce (products, prices, ratings)
+- Job boards (titles, companies, salaries)
+- Real estate (properties, prices, features)
+- Forums (posts, authors, replies)
+- Any non-article structured data
+</Tab>
+
+<Tab title="Use parse_article For">
+**Default parse_article works for:**
+- News sites, blogs, documentation
+- Content with title/content/author/date structure
+- Standard article formats
+</Tab>
+</Tabs>
+
+## Basic Structure
+
+```json spider.json
+{
+  "rules": [
+    {
+      "allow": ["/product/.*"],
+      "callback": "parse_product"
+    }
+  ],
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {"css": "h1::text"},
+        "price": {
+          "css": "span.price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d.]+)"},
+            {"type": "cast", "to": "float"}
+          ]
+        }
+      }
+    }
+  }
+}
+```
+
+## Field Extraction
+
+### Selectors
+
+<CodeGroup>
+```json CSS Selector
+{"css": "h1::text"}
+```
+
+```json Attribute Selector
+{"css": "img::attr(src)"}
+```
+
+```json XPath Selector
+{"xpath": "//h1/text()"}
+```
+
+```json List Extraction
+{"css": "li::text", "get_all": true}
+```
+</CodeGroup>
+
+### Nested Lists
+
+Extract complex nested data structures:
+
+```json
+{
+  "reviews": {
+    "type": "nested_list",
+    "selector": "div.review",
+    "extract": {
+      "author": {"css": "span.author::text"},
+      "rating": {
+        "css": "span.stars::attr(data-rating)",
+        "processors": [{"type": "cast", "to": "int"}]
+      },
+      "comment": {"css": "p.text::text"}
+    }
+  }
+}
+```
+
+<Note>
+Max nesting depth: 3 levels
+</Note>
+
+## Field Processors
+
+8 powerful processors available for data transformation:
+
+<CardGroup cols={2}>
+<Card title="strip" icon="scissors">
+Remove whitespace
+</Card>
+<Card title="replace" icon="repeat">
+Replace substring
+</Card>
+<Card title="regex" icon="search">
+Extract with pattern
+</Card>
+<Card title="cast" icon="wand-magic-sparkles">
+Convert type (int, float, bool, str)
+</Card>
+<Card title="join" icon="link">
+Join list to string
+</Card>
+<Card title="default" icon="circle-check">
+Fallback value
+</Card>
+<Card title="lowercase" icon="text-size">
+Convert to lowercase
+</Card>
+<Card title="parse_datetime" icon="calendar">
+Parse dates (stores as ISO strings)
+</Card>
+</CardGroup>
+
+<Tip>
+See [Data Processors](/guides/data-processors) for complete reference with examples.
+</Tip>
+
+### Chaining Processors
+
+Processors execute sequentially, passing output to next processor:
+
+```json
+{
+  "price": {
+    "css": "span.price::text",
+    "processors": [
+      {"type": "strip"},
+      {"type": "regex", "pattern": "\\$([\\d.]+)"},
+      {"type": "cast", "to": "float"}
+    ]
+  }
+}
+```
+
+## Templates
+
+Complete working examples in `templates/`:
+
+<CardGroup cols={3}>
+<Card title="E-commerce" icon="shopping-cart">
+`templates/spider-ecommerce.json`
+
+Product pages with prices, ratings, stock
+</Card>
+<Card title="Job Boards" icon="briefcase">
+`templates/spider-jobs.json`
+
+Job listings with companies, salaries
+</Card>
+<Card title="Real Estate" icon="house">
+`templates/spider-realestate.json`
+
+Property listings with prices, features
+</Card>
+</CardGroup>
+
+<Tip>
+Use templates as starting points - adjust selectors to match your target site.
+</Tip>
+
+## Common Patterns
+
+### Extract Price
+
+```json
+{
+  "price": {
+    "css": "span.price::text",
+    "processors": [
+      {"type": "strip"},
+      {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+      {"type": "replace", "old": ",", "new": ""},
+      {"type": "cast", "to": "float"}
+    ]
+  }
+}
+```
+
+### Extract Boolean
+
+```json
+{
+  "in_stock": {
+    "css": "span.availability::text",
+    "processors": [
+      {"type": "lowercase"},
+      {"type": "regex", "pattern": "(yes|true|available)"},
+      {"type": "cast", "to": "bool"}
+    ]
+  }
+}
+```
+
+### Handle Missing Fields
+
+```json
+{
+  "optional_field": {
+    "css": "span.optional::text",
+    "processors": [
+      {"type": "strip"},
+      {"type": "default", "default": null}
+    ]
+  }
+}
+```
+
+## Storage Behavior
+
+<Note>
+- **Standard fields** (url, title, content, author, published_date) → Main DB columns
+- **Custom fields** → `metadata_json` column
+- `show` command displays custom fields
+- Exports flatten custom fields to top-level columns/keys
+</Note>
+
+## Workflow
+
+<Steps>
+<Step title="Analyze sample page">
+```bash
+./scrapai analyze page.html
+```
+Discover page structure and identify fields
+</Step>
+
+<Step title="Test selectors">
+```bash
+./scrapai analyze page.html --test "h1::text"
+./scrapai analyze page.html --test "span.price::text"
+```
+Verify selectors extract correct data
+</Step>
+
+<Step title="Build callback config">
+Create callback with selectors and processors
+</Step>
+
+<Step title="Test on multiple pages">
+Verify selectors work across different pages
+</Step>
+
+<Step title="Import and test">
+```bash
+./scrapai crawl spider --limit 5 --project proj
+```
+Run test crawl to validate extraction
+</Step>
+</Steps>
+
+## Complete Examples
+
+### E-commerce Product
+
+```json
+{
+  "name": "mystore",
+  "allowed_domains": ["example.com"],
+  "start_urls": ["https://example.com/products"],
+  "rules": [
+    {
+      "allow": ["/product/[^/]+$"],
+      "callback": "parse_product",
+      "follow": false
+    }
+  ],
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "title": {"css": "h1.product-name::text"},
+        "content": {"css": "div.product-description::text"},
+        "price": {
+          "css": "span.price-value::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "rating": {
+          "css": "div.star-rating::attr(data-rating)",
+          "processors": [{"type": "cast", "to": "float"}]
+        },
+        "stock": {"css": "span.availability::text"},
+        "brand": {"css": "div.brand-name::text"}
+      }
+    }
+  }
+}
+```
+
+### Job Listing
+
+```json
+{
+  "name": "jobboard",
+  "allowed_domains": ["jobs.example.com"],
+  "start_urls": ["https://jobs.example.com/listings"],
+  "rules": [
+    {
+      "allow": ["/job/[^/]+$"],
+      "callback": "parse_job",
+      "follow": false
+    }
+  ],
+  "callbacks": {
+    "parse_job": {
+      "extract": {
+        "title": {"css": "h1.job-title::text"},
+        "company": {"css": "span.company-name::text"},
+        "content": {"css": "div.job-description::text"},
+        "salary": {"css": "span.salary-range::text"},
+        "location": {"css": "span.location::text"},
+        "job_type": {"css": "span.job-type::text"},
+        "date": {
+          "css": "time.posted-date::attr(datetime)",
+          "processors": [{"type": "parse_datetime"}]
+        }
+      }
+    }
+  }
+}
+```
+
+### Forum Posts
+
+```json
+{
+  "name": "forum",
+  "allowed_domains": ["forum.example.com"],
+  "start_urls": ["https://forum.example.com/threads"],
+  "rules": [
+    {
+      "allow": ["/thread/[^/]+$"],
+      "callback": "parse_thread",
+      "follow": false
+    }
+  ],
+  "callbacks": {
+    "parse_thread": {
+      "extract": {
+        "title": {"css": "h1.thread-title::text"},
+        "author": {"css": "span.username::text"},
+        "content": {"css": "div.post-content::text"},
+        "date": {
+          "css": "time.post-date::attr(datetime)",
+          "processors": [{"type": "parse_datetime"}]
+        },
+        "upvotes": {
+          "css": "span.vote-count::text",
+          "processors": [{"type": "cast", "to": "int"}]
+        },
+        "category": {"css": "a.category-link::text"}
+      }
+    }
+  }
+}
+```
+
+## Reserved Names
+
+<Warning>
+Never use these reserved callback names:
+- `parse_article`
+- `parse_start_url`
+- `start_requests`
+- `from_crawler`
+- `closed`
+- `parse`
+</Warning>
+
+## Troubleshooting
+
+### Field Returns None
+
+<Steps>
+<Step title="Test selector">
+```bash
+./scrapai analyze page.html --test "your-selector"
+```
+</Step>
+
+<Step title="Check if page needs browser rendering">
+```bash
+./scrapai inspect https://example.com --project proj --browser
+```
+or
+```bash
+./scrapai inspect https://example.com --project proj --cloudflare
+```
+</Step>
+
+<Step title="Verify processor chain">
+Check if processor is failing and returning None
+</Step>
+</Steps>
+
+### Wrong Type in Output
+
+Add `cast` processor to convert type:
+
+```json
+{"processors": [{"type": "cast", "to": "float"}]}
+```
+
+### Rule References Undefined Callback
+
+<Steps>
+<Step title="Add callback to callbacks dict">
+Ensure callback is defined in `callbacks` section
+</Step>
+
+<Step title="Or use null for navigation-only">
+```json
+{"allow": ["/category/"], "callback": null, "follow": true}
+```
+</Step>
+</Steps>
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Data Processors" icon="wand-magic-sparkles" href="/guides/data-processors">
+Complete processor reference
+</Card>
+<Card title="Extractors" icon="magnifying-glass" href="/guides/extractors">
+Content extraction strategies
+</Card>
+</CardGroup>

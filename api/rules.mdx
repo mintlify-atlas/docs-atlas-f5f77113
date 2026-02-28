@@ -1,0 +1,286 @@
+---
+title: Spider Rules
+description: URL matching and routing configuration
+---
+
+Rules control which URLs are followed and how they are processed. Each rule defines URL patterns and optional callbacks for extraction.
+
+## SpiderRuleSchema
+
+<ParamField path="allow" type="string[]" default="null">
+  Regex patterns for URLs to allow
+  
+  **Validation:**
+  - Must be list of non-empty strings
+  - Patterns are Python regex
+  
+  **Example:**
+  ```json
+  "allow": ["/news/articles/.*", "/blog/.*"]
+  ```
+</ParamField>
+
+<ParamField path="deny" type="string[]" default="null">
+  Regex patterns for URLs to deny (takes precedence over allow)
+  
+  **Validation:**
+  - Must be list of non-empty strings
+  - Patterns are Python regex
+  
+  **Example:**
+  ```json
+  "deny": ["/news/articles/.*#comments", ".*\\?page=.*"]
+  ```
+</ParamField>
+
+<ParamField path="restrict_xpaths" type="string[]" default="null">
+  Only follow links found in these XPath expressions
+  
+  **Example:**
+  ```json
+  "restrict_xpaths": ["//div[@class='main-content']//a"]
+  ```
+</ParamField>
+
+<ParamField path="restrict_css" type="string[]" default="null">
+  Only follow links found in these CSS selectors
+  
+  **Example:**
+  ```json
+  "restrict_css": ["div.article-list a", "nav.pagination a"]
+  ```
+</ParamField>
+
+<ParamField path="callback" type="string" default="null">
+  Callback function name for processing matched URLs
+  
+  **Validation:**
+  - Must be valid Python identifier (regex: `^[a-zA-Z_][a-zA-Z0-9_]*$`)
+  - Cannot be a reserved name
+  - Must be defined in `callbacks` object (or use built-in `parse_article`)
+  
+  **Built-in callbacks:**
+  - `parse_article` - Extract article content using configured extractors
+  
+  **Reserved names (cannot use):**
+  - `parse_article`, `parse_start_url`, `start_requests`, `from_crawler`, `closed`, `parse`
+  
+  **Example:**
+  ```json
+  "callback": "parse_product"
+  ```
+  
+  Use `null` for navigation-only rules (follow links but don't extract).
+</ParamField>
+
+<ParamField path="follow" type="boolean" default="true">
+  Whether to follow links matching this rule
+  
+  **Common patterns:**
+  - `true` - Follow and extract (e.g., category pages)
+  - `false` - Extract only (e.g., article pages, product pages)
+  
+  **Example:**
+  ```json
+  "follow": false
+  ```
+</ParamField>
+
+<ParamField path="priority" type="integer" default="0">
+  Rule priority (higher = processed first)
+  
+  **Validation:**
+  - Min: 0
+  - Max: 1000
+  
+  **Use cases:**
+  - Prioritize important pages
+  - Control crawl order
+  
+  **Example:**
+  ```json
+  "priority": 10
+  ```
+</ParamField>
+
+## Rule Matching
+
+### Allow/Deny Precedence
+
+1. If URL matches any `deny` pattern → **rejected**
+2. If URL matches any `allow` pattern → **accepted**
+3. If no `allow` patterns defined → **accepted by default**
+4. Otherwise → **rejected**
+
+### Restriction Scopes
+
+- `restrict_xpaths` and `restrict_css` limit where links are extracted from
+- Links outside these scopes are ignored, even if they match `allow` patterns
+
+## Examples
+
+### News Site
+
+```json
+{
+  "rules": [
+    {
+      "allow": ["/news/articles/.*"],
+      "deny": ["/news/articles/.*#comments"],
+      "callback": "parse_article",
+      "follow": false
+    },
+    {
+      "allow": ["/news/", "/sport/"],
+      "callback": null,
+      "follow": true
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Article pages (`/news/articles/*`) → Extract content, don't follow links
+- Category pages (`/news/`, `/sport/`) → Follow links, don't extract
+- Comments sections → Ignored
+
+### E-commerce
+
+```json
+{
+  "rules": [
+    {
+      "allow": ["/product/[^/]+$"],
+      "callback": "parse_product",
+      "follow": false,
+      "priority": 5
+    },
+    {
+      "allow": ["/products", "/category/"],
+      "callback": null,
+      "follow": true
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Product pages (`/product/xyz`) → Extract with custom callback, don't follow
+- Listing pages → Follow links to discover products
+
+### Forum/Discussion
+
+```json
+{
+  "rules": [
+    {
+      "allow": ["/item\\?id=\\d+"],
+      "deny": ["/vote", "/reply", "/user"],
+      "callback": "parse_discussion",
+      "follow": false
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Discussion threads → Extract
+- Vote/reply/user pages → Ignored
+
+### Restrict Link Sources
+
+```json
+{
+  "rules": [
+    {
+      "allow": ["/article/.*"],
+      "restrict_css": ["div.main-content a", "nav.pagination a"],
+      "callback": "parse_article"
+    }
+  ]
+}
+```
+
+**Behavior:**
+- Only follow article links from main content and pagination
+- Ignore sidebar, footer, and navigation links
+
+## Common Patterns
+
+### Exact Path Match
+
+```json
+"allow": ["/about$", "/contact$"]
+```
+
+### Exclude Query Parameters
+
+```json
+"deny": [".*\\?.*"]
+```
+
+### Match Numeric IDs
+
+```json
+"allow": ["/product/\\d+$", "/job/\\d+$"]
+```
+
+### Multiple Domains
+
+```json
+{
+  "allowed_domains": ["example.com", "blog.example.com"],
+  "rules": [
+    {"allow": ["^https://example\\.com/products/.*"]},
+    {"allow": ["^https://blog\\.example\\.com/posts/.*"]}
+  ]
+}
+```
+
+### Pagination
+
+```json
+{
+  "allow": ["/page/\\d+$"],
+  "callback": null,
+  "follow": true
+}
+```
+
+## Rule Order
+
+Rules are processed in the order defined in the `rules` array. Use `priority` to control processing order within Scrapy.
+
+## Validation Errors
+
+### Undefined Callback
+
+```
+Rule 0 references undefined callback: 'parse_product'. 
+Defined callbacks: parse_article
+```
+
+**Fix:** Add callback to `callbacks` object or use `parse_article`
+
+### Invalid Callback Name
+
+```
+Invalid callback name: 'parse-product'. 
+Must be a valid Python identifier.
+```
+
+**Fix:** Use underscores instead of hyphens: `parse_product`
+
+### Empty Patterns
+
+```
+Patterns must be non-empty strings
+```
+
+**Fix:** Remove empty strings from `allow`/`deny` arrays
+
+## Related
+
+- [Spider Schema](/api/spider-schema) - Complete configuration reference
+- [Callbacks](/api/callbacks) - Custom extraction configuration
+- [Settings](/api/settings) - Spider behavior settings

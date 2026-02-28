@@ -1,0 +1,510 @@
+---
+title: Queue Processing
+description: Batch process multiple websites with priority management and status tracking
+---
+
+Optional queue system for managing multiple website crawls. Use when explicitly needed. Always specify `--project` when working with queues.
+
+## Commands Reference
+
+### Add Single URL
+
+```bash
+./scrapai queue add <url> --project NAME [-m "instruction"] [--priority N]
+```
+
+**Example:**
+```bash
+./scrapai queue add https://example.com --project myproject -m "Focus on research articles" --priority 5
+```
+
+### Bulk Add URLs
+
+```bash
+./scrapai queue bulk <file.csv|file.json> --project NAME [--priority N]
+```
+
+**Example:**
+```bash
+./scrapai queue bulk sites.json --project myproject
+```
+
+### List Queue Items
+
+<Tabs>
+<Tab title="Default (5 pending)">
+```bash
+./scrapai queue list --project NAME
+```
+Shows 5 pending/processing items by default
+</Tab>
+
+<Tab title="More Items">
+```bash
+./scrapai queue list --project NAME --limit 20
+```
+Show more queue items
+</Tab>
+
+<Tab title="All Statuses">
+```bash
+./scrapai queue list --project NAME --all --limit 50
+```
+Include completed and failed items
+</Tab>
+
+<Tab title="Filter by Status">
+```bash
+./scrapai queue list --project NAME --status pending
+./scrapai queue list --project NAME --status processing
+./scrapai queue list --project NAME --status failed
+```
+Show specific status only
+</Tab>
+
+<Tab title="Count Only">
+```bash
+./scrapai queue list --project NAME --count
+./scrapai queue list --project NAME --status failed --count
+```
+Just show the count
+</Tab>
+</Tabs>
+
+### Claim Next Item
+
+```bash
+./scrapai queue next --project NAME
+```
+
+Claims next highest-priority pending item and marks it as processing.
+
+### Update Item Status
+
+<Note>
+ID is globally unique, no `--project` needed for status updates
+</Note>
+
+<CodeGroup>
+```bash Complete
+./scrapai queue complete <id>
+```
+
+```bash Fail
+./scrapai queue fail <id> [-m "error message"]
+```
+
+```bash Retry
+./scrapai queue retry <id>
+```
+
+```bash Remove
+./scrapai queue remove <id>
+```
+</CodeGroup>
+
+### Cleanup Queue
+
+<Warning>
+Cleanup commands require `--force` flag to prevent accidental deletion
+</Warning>
+
+<CodeGroup>
+```bash Completed Items
+./scrapai queue cleanup --completed --force --project NAME
+```
+
+```bash Failed Items
+./scrapai queue cleanup --failed --force --project NAME
+```
+
+```bash All Items
+./scrapai queue cleanup --all --force --project NAME
+```
+</CodeGroup>
+
+## Bulk File Formats
+
+### JSON Format
+
+```json queue.json
+[
+  {
+    "url": "https://site1.com",
+    "custom_instruction": "Focus on research articles",
+    "priority": 5
+  },
+  {
+    "url": "https://site2.com",
+    "priority": 10
+  },
+  {
+    "url": "https://site3.com",
+    "custom_instruction": "Include all news sections",
+    "priority": 1
+  }
+]
+```
+
+<Note>
+Template available: `templates/queue-template.json`
+</Note>
+
+### CSV Format
+
+```csv queue.csv
+url,custom_instruction,priority
+https://site1.com,Focus on research articles,5
+https://site2.com,,10
+https://site3.com,Include all news sections,1
+```
+
+<Note>
+Template available: `templates/queue-template.csv`
+</Note>
+
+**Required columns:**
+- `url` - Website URL (required)
+- `custom_instruction` - Special instructions for this site (optional)
+- `priority` - Higher number = higher priority (optional, default: 0)
+
+## Queue Processing Workflow
+
+<Steps>
+<Step title="Claim next item">
+```bash
+./scrapai queue next --project NAME
+```
+
+Note the returned values:
+- ID (for status updates)
+- URL (target website)
+- Project name
+- Custom instruction (if exists)
+</Step>
+
+<Step title="Process custom instruction">
+If `custom_instruction` exists, use it to override default analysis behavior.
+
+**Example:** Instruction "Focus only on research articles" means:
+- Only create rules for research article URL patterns
+- Skip other content sections
+</Step>
+
+<Step title="Run analysis phases">
+Execute standard analysis workflow (Phases 1-4).
+
+Include `"source_url": "<queue_url>"` in `final_spider.json`.
+</Step>
+
+<Step title="Import spider">
+```bash
+./scrapai import final_spider.json --project myproject
+```
+
+<Warning>
+Always use `--project` matching the queue item's project! Without it, spider defaults to "default" project, mixing data across projects.
+</Warning>
+</Step>
+
+<Step title="Run crawl">
+```bash
+./scrapai crawl spider_name --project myproject
+```
+</Step>
+
+<Step title="Update status on success">
+```bash
+./scrapai queue complete <id>
+```
+</Step>
+
+<Step title="Update status on failure">
+```bash
+./scrapai queue fail <id> -m "error description"
+```
+</Step>
+</Steps>
+
+## Custom Instruction Handling
+
+When `queue next` returns a `custom_instruction`, use it to override default analysis behavior.
+
+**Examples:**
+
+<Tabs>
+<Tab title="Focus on Specific Content">
+**Instruction:** "Focus only on research articles"
+
+**Action:**
+- Only create rules for research article URL patterns
+- Skip other content sections (news, blog posts, etc.)
+- Narrow down link-following rules
+</Tab>
+
+<Tab title="Include All Sections">
+**Instruction:** "Include all news sections"
+
+**Action:**
+- Create rules for all news-related URL patterns
+- Follow navigation across all news categories
+- Don't limit to specific article types
+</Tab>
+
+<Tab title="Custom Depth">
+**Instruction:** "Only crawl 2 levels deep"
+
+**Action:**
+- Configure spider with depth limit
+- Adjust link-following rules accordingly
+</Tab>
+
+<Tab title="Custom Selectors">
+**Instruction:** "Use h2.headline for titles"
+
+**Action:**
+- Add custom selectors in spider config
+- Override default extractor configuration
+</Tab>
+</Tabs>
+
+<Tip>
+Custom instructions allow per-site customization without modifying the base analysis workflow.
+</Tip>
+
+## Direct vs Queue Processing
+
+Understand when to use queue vs direct processing:
+
+<Tabs>
+<Tab title="Direct Processing">
+**User says:** "Add this website: X" or "Process X"
+
+**Action:**
+- Process immediately (run Phases 1-4)
+- No queue involved
+- Import and optionally test crawl
+
+```bash
+# Example flow
+./scrapai inspect https://example.com --project proj
+# ... run analysis phases ...
+./scrapai import final_spider.json --project proj
+./scrapai crawl spider_name --project proj --limit 10
+```
+</Tab>
+
+<Tab title="Add to Queue">
+**User says:** "Add X to the queue" or "Queue X"
+
+**Action:**
+- Add to queue only - do NOT process
+- User will process later with `queue next`
+
+```bash
+./scrapai queue add https://example.com --project proj -m "Focus on articles"
+```
+</Tab>
+
+<Tab title="Process from Queue">
+**User says:** "Process next" or "Process queue"
+
+**Action:**
+- Claim next item with `queue next`
+- Then run Phases 1-4
+- Import and test crawl
+- Update status (complete/fail)
+
+```bash
+./scrapai queue next --project proj
+# ... run analysis phases ...
+./scrapai import final_spider.json --project proj
+./scrapai crawl spider_name --project proj --limit 10
+./scrapai queue complete <id>
+```
+</Tab>
+</Tabs>
+
+## Project Isolation
+
+<Warning>
+**CRITICAL:** NEVER omit `--project` when importing spiders from queue.
+
+Without it, spider defaults to "default" project, mixing data across projects. Always match the queue item's project.
+</Warning>
+
+**Correct:**
+```bash
+./scrapai import final_spider.json --project myproject
+./scrapai crawl spider_name --project myproject
+```
+
+**Incorrect:**
+```bash
+./scrapai import final_spider.json  # Defaults to "default" project!
+./scrapai crawl spider_name  # Defaults to "default" project!
+```
+
+## Complete Example
+
+### 1. Create Queue File
+
+```json sites.json
+[
+  {
+    "url": "https://techcrunch.com",
+    "custom_instruction": "Focus on AI and startup news",
+    "priority": 10
+  },
+  {
+    "url": "https://theverge.com",
+    "custom_instruction": "All technology articles",
+    "priority": 5
+  },
+  {
+    "url": "https://arstechnica.com",
+    "priority": 3
+  }
+]
+```
+
+### 2. Bulk Add to Queue
+
+```bash
+./scrapai queue bulk sites.json --project tech_news
+```
+
+### 3. Check Queue
+
+```bash
+./scrapai queue list --project tech_news
+```
+
+**Output:**
+```
+Queue items for project 'tech_news':
+
+ID: 1
+URL: https://techcrunch.com
+Status: pending
+Priority: 10
+Custom instruction: Focus on AI and startup news
+Created: 2024-02-24 10:30:00
+
+... (2 more items)
+```
+
+### 4. Process Queue
+
+```bash
+# Claim next (highest priority)
+./scrapai queue next --project tech_news
+
+# Output:
+# Claimed queue item #1
+# Project: tech_news
+# URL: https://techcrunch.com
+# Custom instruction: Focus on AI and startup news
+# Priority: 10
+
+# Run analysis workflow (Phases 1-4)
+./scrapai inspect https://techcrunch.com --project tech_news
+# ... complete analysis phases ...
+
+# Import spider
+./scrapai import final_spider.json --project tech_news
+
+# Test crawl
+./scrapai crawl techcrunch --project tech_news --limit 10
+
+# Mark as complete
+./scrapai queue complete 1
+```
+
+### 5. Handle Failure
+
+```bash
+# If crawl fails
+./scrapai queue fail 1 -m "Site requires authentication"
+
+# Check failed items
+./scrapai queue list --project tech_news --status failed
+
+# Retry if needed
+./scrapai queue retry 1
+```
+
+### 6. Cleanup
+
+```bash
+# Remove completed items
+./scrapai queue cleanup --completed --force --project tech_news
+
+# Or remove all
+./scrapai queue cleanup --all --force --project tech_news
+```
+
+## Statistics
+
+Check queue statistics:
+
+```bash
+# Count by status
+./scrapai queue list --project tech_news --status pending --count
+./scrapai queue list --project tech_news --status completed --count
+./scrapai queue list --project tech_news --status failed --count
+
+# View all items
+./scrapai queue list --project tech_news --all --limit 100
+```
+
+## Best Practices
+
+<Steps>
+<Step title="Use descriptive custom instructions">
+Help guide the analysis process with clear instructions:
+```bash
+./scrapai queue add https://example.com --project proj -m "Focus on research papers, ignore blog posts"
+```
+</Step>
+
+<Step title="Set meaningful priorities">
+Higher numbers processed first:
+- 10: Urgent, high-value sites
+- 5: Standard priority
+- 1: Low priority, process when available
+</Step>
+
+<Step title="Always specify project">
+Prevent data mixing across projects:
+```bash
+./scrapai import spider.json --project myproject
+./scrapai crawl spider --project myproject
+```
+</Step>
+
+<Step title="Document failures">
+Help debug issues later:
+```bash
+./scrapai queue fail <id> -m "Requires JavaScript rendering - use --browser flag"
+```
+</Step>
+
+<Step title="Regular cleanup">
+Remove old completed items:
+```bash
+./scrapai queue cleanup --completed --force --project myproject
+```
+</Step>
+</Steps>
+
+## Related Guides
+
+<CardGroup cols={2}>
+<Card title="Checkpoint Resume" icon="save" href="/guides/checkpoint-resume">
+Pause and resume long crawls
+</Card>
+<Card title="Incremental Crawling" icon="rotate" href="/guides/incremental-crawling">
+Skip unchanged pages
+</Card>
+</CardGroup>

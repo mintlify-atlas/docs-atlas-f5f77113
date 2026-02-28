@@ -1,0 +1,373 @@
+---
+title: Callbacks
+description: Custom field extraction for structured data
+---
+
+Callbacks extract custom fields from structured data like products, jobs, listings, or forums. They define CSS/XPath selectors and processors for each field.
+
+## When to Use
+
+**Use callbacks for:**
+- E-commerce (products, prices, ratings)
+- Job boards (titles, companies, salaries)
+- Real estate (properties, prices, features)
+- Forums (posts, authors, replies)
+- Any non-article structured data
+
+**Use `parse_article` for:**
+- News, blogs, documentation
+- Content with title/content/author/date structure
+
+## CallbackSchema
+
+<ParamField path="extract" type="object" required>
+  Field extraction rules (mapping of field name → FieldExtractSchema)
+  
+  **Validation:**
+  - Min 1 field required
+  - Each key is the field name
+  - Each value is a FieldExtractSchema
+  
+  **Example:**
+  ```json
+  {
+    "extract": {
+      "name": {"css": "h1::text"},
+      "price": {"css": "span.price::text"}
+    }
+  }
+  ```
+</ParamField>
+
+## FieldExtractSchema
+
+<ParamField path="css" type="string" default="null">
+  CSS selector for extraction
+  
+  **Syntax:**
+  - `"h1"` - Element
+  - `"h1::text"` - Text content
+  - `"img::attr(src)"` - Attribute value
+  - `"div.class > p"` - Nested selector
+  
+  **Example:**
+  ```json
+  {"css": "h1.product-name::text"}
+  ```
+</ParamField>
+
+<ParamField path="xpath" type="string" default="null">
+  XPath expression for extraction
+  
+  **Example:**
+  ```json
+  {"xpath": "//h1/text()"}
+  ```
+</ParamField>
+
+<ParamField path="get_all" type="boolean" default="false">
+  Extract all matches (returns list)
+  
+  **Example:**
+  ```json
+  {
+    "css": "li.feature::text",
+    "get_all": true
+  }
+  ```
+  
+  **Output:** `["WiFi", "Bluetooth", "GPS"]`
+</ParamField>
+
+<ParamField path="processors" type="ProcessorSchema[]" default="null">
+  Value transformations to apply sequentially
+  
+  **Available processors:**
+  - `strip` - Remove whitespace
+  - `replace` - Replace substring
+  - `regex` - Extract with pattern
+  - `cast` - Convert type (int, float, bool, str)
+  - `join` - Join list to string
+  - `default` - Fallback value
+  - `lowercase` - Convert to lowercase
+  - `parse_datetime` - Parse dates
+  
+  **Example:**
+  ```json
+  {
+    "css": "span.price::text",
+    "processors": [
+      {"type": "strip"},
+      {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+      {"type": "replace", "old": ",", "new": ""},
+      {"type": "cast", "to": "float"}
+    ]
+  }
+  ```
+</ParamField>
+
+### Nested Lists
+
+<ParamField path="type" type="string" default="null">
+  Field type (use `"nested_list"` for extracting lists of objects)
+  
+  **Example:**
+  ```json
+  {"type": "nested_list"}
+  ```
+</ParamField>
+
+<ParamField path="selector" type="string" default="null">
+  CSS selector for nested list items
+  
+  **Required when:** `type: "nested_list"`
+  
+  **Example:**
+  ```json
+  {
+    "type": "nested_list",
+    "selector": "div.review"
+  }
+  ```
+</ParamField>
+
+<ParamField path="extract" type="object" default="null">
+  Nested extraction config (field name → FieldExtractSchema)
+  
+  **Required when:** `type: "nested_list"`
+  
+  **Max depth:** 3 levels
+  
+  **Example:**
+  ```json
+  {
+    "type": "nested_list",
+    "selector": "div.review",
+    "extract": {
+      "author": {"css": "span.author::text"},
+      "rating": {
+        "css": "span.stars::attr(data-rating)",
+        "processors": [{"type": "cast", "to": "int"}]
+      },
+      "comment": {"css": "p.text::text"}
+    }
+  }
+  ```
+</ParamField>
+
+## ProcessorSchema
+
+<ParamField path="type" type="string" required>
+  Processor type
+  
+  **Allowed values:**
+  - `strip`, `replace`, `regex`, `cast`, `join`, `default`, `lowercase`, `parse_datetime`
+  
+  **Example:**
+  ```json
+  {"type": "strip"}
+  ```
+</ParamField>
+
+**Processor-specific parameters:**
+
+- **replace:** `old` (string), `new` (string)
+- **regex:** `pattern` (string), `group` (int, default: 1)
+- **cast:** `to` ("int"|"float"|"bool"|"str")
+- **join:** `separator` (string, default: " ")
+- **default:** `default` (any)
+- **parse_datetime:** `format` (string, optional)
+
+See complete processor reference in related docs.
+
+## Examples
+
+### E-commerce Product
+
+```json
+{
+  "callbacks": {
+    "parse_product": {
+      "extract": {
+        "name": {
+          "css": "h1.product-name::text",
+          "processors": [{"type": "strip"}]
+        },
+        "price": {
+          "css": "span.price::text",
+          "processors": [
+            {"type": "strip"},
+            {"type": "regex", "pattern": "\\$([\\d,.]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "float"}
+          ]
+        },
+        "rating": {
+          "css": "span.rating::attr(data-rating)",
+          "processors": [{"type": "cast", "to": "float"}]
+        },
+        "features": {
+          "css": "li.feature::text",
+          "get_all": true
+        }
+      }
+    }
+  }
+}
+```
+
+### Job Listing
+
+```json
+{
+  "callbacks": {
+    "parse_job": {
+      "extract": {
+        "title": {
+          "css": "h1.job-title::text",
+          "processors": [{"type": "strip"}]
+        },
+        "company": {
+          "css": "span.company-name::text",
+          "processors": [{"type": "strip"}]
+        },
+        "salary_min": {
+          "css": "span.salary-min::text",
+          "processors": [
+            {"type": "regex", "pattern": "\\$([\\d,]+)"},
+            {"type": "replace", "old": ",", "new": ""},
+            {"type": "cast", "to": "int"}
+          ]
+        },
+        "remote": {
+          "css": "span.remote::text",
+          "processors": [
+            {"type": "lowercase"},
+            {"type": "regex", "pattern": "(remote|work from home)"},
+            {"type": "cast", "to": "bool"}
+          ]
+        },
+        "requirements": {
+          "css": "li.requirement::text",
+          "get_all": true
+        }
+      }
+    }
+  }
+}
+```
+
+### Forum with Nested Comments
+
+```json
+{
+  "callbacks": {
+    "parse_discussion": {
+      "extract": {
+        "story_title": {
+          "css": "tr.athing td.title a::text"
+        },
+        "story_points": {
+          "css": "span.score::text",
+          "processors": [
+            {"type": "regex", "pattern": "(\\d+)"}
+          ]
+        },
+        "comments": {
+          "type": "nested_list",
+          "selector": "tr.athing.comtr",
+          "extract": {
+            "author": {"css": "a.hnuser::text"},
+            "timestamp": {"css": "span.age::attr(title)"},
+            "comment_text": {
+              "css": "div.commtext",
+              "get_all": true,
+              "processors": [
+                {"type": "join", "separator": " "}
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Field Storage
+
+### Standard Fields
+
+Map to database columns:
+- `url` → scraped_items.url
+- `title` → scraped_items.title
+- `content` → scraped_items.content
+- `author` → scraped_items.author
+- `published_date` → scraped_items.published_date
+
+### Custom Fields
+
+Stored in `metadata_json` column:
+- `price`, `rating`, `category`, etc.
+- Displayed in `show` command
+- Flattened in exports (CSV/JSON/JSONL)
+
+## Reserved Names
+
+**Cannot use as callback names:**
+- `parse_article`
+- `parse_start_url`
+- `start_requests`
+- `from_crawler`
+- `closed`
+- `parse`
+
+## Validation
+
+### Callback Name
+
+```python
+# Valid
+"parse_product", "extract_job", "get_listing"
+
+# Invalid
+"parse-product"  # No hyphens
+"123parse"       # Must start with letter/underscore
+"parse article"  # No spaces
+```
+
+### Field Extraction
+
+Must have either:
+- `css` or `xpath` selector, OR
+- `type: "nested_list"` with `selector` and `extract`
+
+### Cross-Validation
+
+Rules must reference defined callbacks:
+
+```json
+{
+  "rules": [
+    {"allow": ["/product/.*"], "callback": "parse_product"}
+  ],
+  "callbacks": {
+    "parse_product": { /* ... */ }
+  }
+}
+```
+
+## Workflow
+
+1. **Analyze page:** `scrapai analyze page.html`
+2. **Test selectors:** `scrapai analyze page.html --test "h1.title"`
+3. **Build callback config** with processors
+4. **Import spider:** `scrapai import spider.json --project proj`
+5. **Test extraction:** `scrapai crawl spider --limit 5 --project proj`
+6. **View results:** `scrapai show spider 1 --project proj`
+
+## Related
+
+- [Spider Schema](/api/spider-schema) - Complete configuration
+- [Rules](/api/rules) - URL matching and routing
+- [Custom Extractors](/api/custom-extractors) - CSS selector details

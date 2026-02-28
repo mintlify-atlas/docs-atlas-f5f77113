@@ -1,0 +1,569 @@
+---
+title: "Queue Management"
+description: "Batch processing with database-backed queue and atomic locking"
+---
+
+The queue system enables batch processing of multiple websites with status tracking, priority ordering, and atomic claim operations. Perfect for processing hundreds of URLs with AI agents or parallel workers.
+
+## queue add
+
+Add a single website to the queue.
+
+### Syntax
+
+```bash
+./scrapai queue add <url> --project <name> [options]
+```
+
+### Arguments
+
+<ParamField path="url" type="string" required>
+  Website URL to add to queue.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name.
+</ParamField>
+
+<ParamField path="--message" type="string">
+  Custom instruction for processing this URL (e.g., "Focus on product pricing").
+</ParamField>
+
+<ParamField path="--priority" type="integer" default="5">
+  Priority level (higher = processed sooner). Range: 1-10.
+</ParamField>
+
+### Examples
+
+```bash
+# Simple add
+./scrapai queue add https://example.com --project myproject
+
+# With custom instructions
+./scrapai queue add https://techsite.com --project tech \
+  --message "Extract author and publication date"
+
+# High priority
+./scrapai queue add https://urgent.com --project news --priority 10
+```
+
+### Output
+
+```bash
+$ ./scrapai queue add https://bbc.co.uk --project news --priority 8
+✅ Added to queue (ID: 42)
+   URL: https://bbc.co.uk
+   Project: news
+   Priority: 8
+```
+
+### Duplicate Handling
+
+```bash
+$ ./scrapai queue add https://bbc.co.uk --project news
+⚠️  URL already exists in queue
+   ⏳ ID: 42
+   Status: pending
+   URL: https://bbc.co.uk
+   Skipping duplicate...
+```
+
+Duplicates are detected by `(project_name, website_url)` combination.
+
+## queue bulk
+
+Bulk add URLs from CSV or JSON file.
+
+### Syntax
+
+```bash
+./scrapai queue bulk <file> --project <name> [options]
+```
+
+### Arguments
+
+<ParamField path="file" type="string" required>
+  Path to CSV or JSON file containing URLs.
+</ParamField>
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name for all URLs.
+</ParamField>
+
+<ParamField path="--priority" type="integer" default="5">
+  Default priority for all URLs (can be overridden per-row).
+</ParamField>
+
+### CSV Format
+
+Requires a `url` column. Optional: `custom_instruction`, `priority`.
+
+```csv
+url,custom_instruction,priority
+https://bbc.co.uk,Focus on UK news,8
+https://cnn.com,Focus on breaking news,9
+https://reuters.com,,7
+```
+
+### JSON Format
+
+Array of objects with `url` field. Optional: `custom_instruction`, `priority`.
+
+```json
+[
+  {
+    "url": "https://bbc.co.uk",
+    "custom_instruction": "Focus on UK news",
+    "priority": 8
+  },
+  {
+    "url": "https://cnn.com",
+    "custom_instruction": "Focus on breaking news",
+    "priority": 9
+  },
+  {
+    "url": "https://reuters.com",
+    "priority": 7
+  }
+]
+```
+
+### Examples
+
+```bash
+# Bulk add from CSV
+./scrapai queue bulk websites.csv --project news
+
+# Bulk add from JSON
+./scrapai queue bulk urls.json --project ecommerce --priority 6
+```
+
+### Output
+
+```bash
+$ ./scrapai queue bulk news_sites.csv --project news
+✅ Bulk add complete:
+   Added: 47
+   Skipped (duplicates/invalid): 3
+   Project: news
+   Format: CSV
+```
+
+<Tip>
+Use `templates/queue-template.csv` as a starting point for your CSV files.
+</Tip>
+
+## queue list
+
+List queue items with filtering.
+
+### Syntax
+
+```bash
+./scrapai queue list --project <name> [options]
+```
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name.
+</ParamField>
+
+<ParamField path="--status" type="string">
+  Filter by status: `pending`, `processing`, `completed`, `failed`.
+</ParamField>
+
+<ParamField path="--limit" type="integer" default="5">
+  Maximum items to show.
+</ParamField>
+
+<ParamField path="--all" type="flag">
+  Show all items including completed and failed (default shows only pending/processing).
+</ParamField>
+
+<ParamField path="--count" type="flag">
+  Show only the count, no details.
+</ParamField>
+
+### Examples
+
+```bash
+# Show pending/processing items (default)
+./scrapai queue list --project news
+
+# Show all items
+./scrapai queue list --project news --all
+
+# Show only failed items
+./scrapai queue list --project news --status failed
+
+# Count pending items
+./scrapai queue list --project news --status pending --count
+```
+
+### Output
+
+```bash
+$ ./scrapai queue list --project news
+📋 Queue for project 'news':
+
+⏳ [42] https://bbc.co.uk
+   Status: pending | Priority: 8
+   Instructions: Focus on UK news
+
+🔄 [43] https://cnn.com
+   Status: processing | Priority: 9
+   Processing by: user@hostname (since 2026-02-28 15:30)
+
+⏳ [44] https://reuters.com
+   Status: pending | Priority: 7
+```
+
+### Status Icons
+
+- ⏳ **Pending**: Waiting to be processed
+- 🔄 **Processing**: Currently being worked on
+- ✅ **Completed**: Successfully processed
+- ❌ **Failed**: Processing failed
+
+## queue next
+
+Atomically claim the next pending item.
+
+### Syntax
+
+```bash
+./scrapai queue next --project <name>
+```
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name.
+</ParamField>
+
+### Behavior
+
+1. Finds highest priority pending item
+2. Atomically updates status to `processing`
+3. Sets `processing_by` to `username@hostname`
+4. Sets `locked_at` to current timestamp
+
+**PostgreSQL**: Uses `FOR UPDATE SKIP LOCKED` (race-safe)
+**SQLite**: Uses conditional UPDATE (race-prone under high concurrency)
+
+### Example
+
+```bash
+./scrapai queue next --project news
+```
+
+### Output
+
+#### Item Claimed
+
+```bash
+🔄 Claimed item from queue:
+   ID: 42
+   URL: https://bbc.co.uk
+   Instructions: Focus on UK news
+   Priority: 8
+   Locked by: user@hostname
+```
+
+#### Empty Queue
+
+```bash
+📬 No pending items in queue for project 'news'
+```
+
+### Use in Agents
+
+Typical agent workflow:
+
+```bash
+# Claim next item
+./scrapai queue next --project news
+# ID: 42, URL: https://bbc.co.uk
+
+# Process the website
+# (AI agent analyzes site, generates spider, tests, imports)
+
+# Mark as completed
+./scrapai queue complete 42
+
+# Or mark as failed
+./scrapai queue fail 42 --message "Site requires authentication"
+```
+
+## queue complete
+
+Mark an item as successfully completed.
+
+### Syntax
+
+```bash
+./scrapai queue complete <id>
+```
+
+### Arguments
+
+<ParamField path="id" type="integer" required>
+  Queue item ID.
+</ParamField>
+
+### Example
+
+```bash
+./scrapai queue complete 42
+```
+
+### Output
+
+```bash
+✅ Item 42 marked as completed
+   URL: https://bbc.co.uk
+```
+
+## queue fail
+
+Mark an item as failed with error message.
+
+### Syntax
+
+```bash
+./scrapai queue fail <id> [--message <error>]
+```
+
+### Arguments
+
+<ParamField path="id" type="integer" required>
+  Queue item ID.
+</ParamField>
+
+### Options
+
+<ParamField path="--message" type="string">
+  Error message explaining why processing failed.
+</ParamField>
+
+### Example
+
+```bash
+./scrapai queue fail 42 --message "Site requires login"
+```
+
+### Output
+
+```bash
+❌ Item 42 marked as failed
+   URL: https://bbc.co.uk
+   Error: Site requires login
+```
+
+## queue retry
+
+Reset a failed item to pending status.
+
+### Syntax
+
+```bash
+./scrapai queue retry <id>
+```
+
+### Arguments
+
+<ParamField path="id" type="integer" required>
+  Queue item ID.
+</ParamField>
+
+### Example
+
+```bash
+./scrapai queue retry 42
+```
+
+### Output
+
+```bash
+🔄 Item 42 reset to pending (retry count: 1)
+   URL: https://bbc.co.uk
+```
+
+<Note>
+Retry count is tracked but not enforced. You can retry items indefinitely.
+</Note>
+
+## queue remove
+
+Remove an item from the queue.
+
+### Syntax
+
+```bash
+./scrapai queue remove <id>
+```
+
+### Arguments
+
+<ParamField path="id" type="integer" required>
+  Queue item ID.
+</ParamField>
+
+### Example
+
+```bash
+./scrapai queue remove 42
+```
+
+### Output
+
+```bash
+🗑️  Item 42 removed from queue
+   URL: https://bbc.co.uk
+```
+
+## queue cleanup
+
+Bulk remove completed or failed items.
+
+### Syntax
+
+```bash
+./scrapai queue cleanup --project <name> [options]
+```
+
+### Options
+
+<ParamField path="--project" type="string" default="default">
+  Project name.
+</ParamField>
+
+<ParamField path="--completed" type="flag">
+  Remove all completed items.
+</ParamField>
+
+<ParamField path="--failed" type="flag">
+  Remove all failed items.
+</ParamField>
+
+<ParamField path="--all" type="flag">
+  Remove all completed and failed items.
+</ParamField>
+
+<ParamField path="--force" type="flag">
+  Skip confirmation prompt.
+</ParamField>
+
+### Examples
+
+```bash
+# Clean up completed items
+./scrapai queue cleanup --project news --completed
+
+# Clean up failed items
+./scrapai queue cleanup --project news --failed
+
+# Clean up everything (completed + failed)
+./scrapai queue cleanup --project news --all --force
+```
+
+### Output
+
+```bash
+$ ./scrapai queue cleanup --project news --all
+🗑️  Found 47 items to remove:
+   ✅ [42] https://bbc.co.uk
+   ✅ [43] https://cnn.com
+   ❌ [44] https://broken-site.com
+   ✅ [45] https://reuters.com
+   ... and 43 more
+
+Remove 47 items? (y/N): y
+✅ Removed 47 items from queue
+```
+
+## Database Schema
+
+### `crawl_queue` Table
+
+```sql
+CREATE TABLE crawl_queue (
+    id INTEGER PRIMARY KEY,
+    project_name VARCHAR(255) NOT NULL,
+    website_url VARCHAR(2048) NOT NULL,
+    custom_instruction TEXT,
+    status VARCHAR(50) NOT NULL DEFAULT 'pending',
+    priority INTEGER NOT NULL DEFAULT 5,
+    processing_by VARCHAR(255),
+    locked_at TIMESTAMP,
+    error_message TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    UNIQUE(project_name, website_url)
+);
+```
+
+### Status Values
+
+- `pending`: Waiting to be processed
+- `processing`: Currently being worked on (locked)
+- `completed`: Successfully processed
+- `failed`: Processing failed with error
+
+## Parallel Processing
+
+### Manual Loop
+
+```bash
+while true; do
+  ./scrapai queue next --project news | grep "ID:" || break
+  # Process the URL
+  # Mark complete/failed
+done
+```
+
+### Parallel Workers
+
+Run multiple workers in parallel:
+
+```bash
+# Terminal 1
+while true; do
+  ./scrapai queue next --project news && # process
+done
+
+# Terminal 2
+while true; do
+  ./scrapai queue next --project news && # process
+done
+
+# Terminal 3
+while true; do
+  ./scrapai queue next --project news && # process
+done
+```
+
+<Warning>
+**PostgreSQL recommended** for parallel processing. SQLite lacks `FOR UPDATE SKIP LOCKED` and may have race conditions under high concurrency.
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+
+<Card title="Crawl Commands" icon="play" href="/cli/crawl">
+  Process queue items with crawl commands
+</Card>
+
+<Card title="Database" icon="server" href="/cli/database">
+  Query and manage queue data
+</Card>
+
+</CardGroup>

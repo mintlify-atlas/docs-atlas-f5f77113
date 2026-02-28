@@ -1,0 +1,388 @@
+---
+title: Proxy Configuration
+description: Configure smart proxy rotation for ScrapAI CLI to avoid blocking
+---
+
+## Overview
+
+ScrapAI features **SmartProxyMiddleware** that intelligently manages proxy usage to avoid blocks while minimizing costs. The middleware automatically detects when proxies are needed and escalates from direct connections to datacenter proxies to residential proxies.
+
+## How It Works
+
+### Auto Mode Strategy (Default)
+
+1. **Start with direct connections** (fast, free)
+2. **Detect blocking** (403/429 errors)
+3. **Automatically retry with datacenter proxy** (cheap, fast)
+4. **Learn which domains need proxies**
+5. **Use proxy proactively** for known-blocked domains
+6. **Expert-in-the-loop** if datacenter fails → ask user before using expensive residential
+
+### Smart Cost Control
+
+- Direct connections are faster and free
+- Proxies only used when necessary
+- Datacenter proxies preferred (cheaper)
+- Residential proxies require explicit user approval
+- Learns per-domain blocking patterns
+- Reduces proxy bandwidth costs by 80-90%
+- **No surprise costs** - expensive proxies need human approval
+
+## Proxy Types
+
+### Datacenter Proxies (Recommended)
+
+<Note>
+**Best for:**
+- Most websites
+- High-speed scraping
+- Cost-effective scaling
+- General use cases
+</Note>
+
+**Advantages:**
+- Fast (low latency)
+- Cheap (< $1/GB typical)
+- High bandwidth
+- Reliable
+
+**Limitations:**
+- Some sites block datacenter IPs
+- Easier to detect
+
+### Residential Proxies
+
+<Warning>
+**Use only when needed:**
+- Sites that block datacenter IPs
+- Requires explicit `--proxy-type residential` flag
+- Higher cost ($3-15/GB typical)
+</Warning>
+
+**Advantages:**
+- Real residential IPs
+- Harder to block
+- Better for strict sites
+
+**Limitations:**
+- Expensive
+- Slower (higher latency)
+- Lower bandwidth
+
+## Configuration
+
+### Setup Datacenter Proxy
+
+Add credentials to `.env`:
+
+```bash
+# Datacenter Proxy (default - used automatically)
+DATACENTER_PROXY_USERNAME=your_username
+DATACENTER_PROXY_PASSWORD=your_password
+DATACENTER_PROXY_HOST=dc.decodo.com
+DATACENTER_PROXY_PORT=10000  # Port 10000 = rotating IPs (recommended)
+```
+
+### Setup Residential Proxy
+
+Add credentials to `.env`:
+
+```bash
+# Residential Proxy (used with --proxy-type residential flag)
+RESIDENTIAL_PROXY_USERNAME=your_username
+RESIDENTIAL_PROXY_PASSWORD=your_password
+RESIDENTIAL_PROXY_HOST=gate.decodo.com
+RESIDENTIAL_PROXY_PORT=7000  # Port 7000 = rotating residential IPs
+```
+
+### Environment Variables
+
+<ParamField path="DATACENTER_PROXY_USERNAME" type="string" required={false}>
+  Username for datacenter proxy authentication.
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_PASSWORD" type="string" required={false}>
+  Password for datacenter proxy authentication.
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_HOST" type="string" required={false}>
+  Datacenter proxy server hostname.
+  
+  **Example:** `dc.decodo.com`
+</ParamField>
+
+<ParamField path="DATACENTER_PROXY_PORT" type="number" required={false}>
+  Datacenter proxy server port.
+  
+  **Rotating IPs:** Use port `10000` (recommended)
+  **Sticky IPs:** Use ports `10001-63000` (same port = same IP)
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_USERNAME" type="string" required={false}>
+  Username for residential proxy authentication.
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_PASSWORD" type="string" required={false}>
+  Password for residential proxy authentication.
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_HOST" type="string" required={false}>
+  Residential proxy server hostname.
+  
+  **Example:** `gate.decodo.com`
+</ParamField>
+
+<ParamField path="RESIDENTIAL_PROXY_PORT" type="number" required={false}>
+  Residential proxy server port.
+  
+  **Rotating IPs:** Use port `7000` (recommended)
+</ParamField>
+
+## Decodo Configuration (Recommended)
+
+### Datacenter Proxies
+
+```bash
+# Get credentials from Decodo dashboard
+DATACENTER_PROXY_USERNAME=your_decodo_username
+DATACENTER_PROXY_PASSWORD=your_decodo_password
+DATACENTER_PROXY_HOST=dc.decodo.com
+DATACENTER_PROXY_PORT=10000  # Rotating datacenter IPs
+```
+
+### Residential Proxies
+
+```bash
+# Get credentials from Decodo dashboard
+RESIDENTIAL_PROXY_USERNAME=your_decodo_username
+RESIDENTIAL_PROXY_PASSWORD=your_decodo_password
+RESIDENTIAL_PROXY_HOST=gate.decodo.com
+RESIDENTIAL_PROXY_PORT=7000  # Rotating residential IPs
+```
+
+### Decodo Port Options
+
+**Datacenter (dc.decodo.com):**
+- **Port 10000**: Rotating IPs (recommended) - Each request gets a different IP automatically
+- **Ports 10001-63000**: Sticky IPs - Same port = same IP address
+
+**Residential (gate.decodo.com):**
+- **Port 7000**: Rotating residential IPs (recommended)
+
+<Tip>
+ScrapAI's SmartProxyMiddleware uses a single proxy connection, so **use rotating ports (10000 for datacenter, 7000 for residential)**.
+</Tip>
+
+## Usage
+
+### Auto Mode (Default)
+
+Smart escalation with cost control:
+
+```bash
+# Auto mode (default) - smart escalation
+./scrapai crawl spider_name --project proj --limit 10
+
+# Explicit auto mode
+./scrapai crawl spider_name --project proj --limit 10 --proxy-type auto
+```
+
+**How auto mode works:**
+
+1. ✅ Start with direct connections (fast, free)
+2. ✅ On block (403/429) → Try datacenter proxy (cheap, fast)
+3. ⚠️ **Datacenter fails** → **Expert-in-the-loop prompt:**
+   ```
+   ⚠️  EXPERT-IN-THE-LOOP: Datacenter proxy failed for some domains
+   🏠 Residential proxy is available but may incur HIGHER COSTS
+
+   Blocked domains: example.com, site.org
+
+   To proceed with residential proxy, run:
+     ./scrapai crawl spider_name --project proj --proxy-type residential
+   ```
+4. 👤 **User decides** whether to use expensive residential proxies
+
+<Note>
+**Cost protection:** Residential proxies require explicit user approval - no surprise costs!
+</Note>
+
+### Datacenter Only
+
+Force datacenter proxy only (even if residential configured):
+
+```bash
+./scrapai crawl spider_name --project proj --limit 10 --proxy-type datacenter
+```
+
+### Residential Only
+
+Force residential proxy (explicit approval given):
+
+```bash
+./scrapai crawl spider_name --project proj --limit 10 --proxy-type residential
+```
+
+**All modes follow smart strategy:**
+- ✅ Start with direct connections (fast, free)
+- ✅ Only use proxy when blocked (403/429 errors)
+- ✅ Learn which domains need proxies
+- ✅ Use proxy proactively for blocked domains
+
+The `--proxy-type` flag controls escalation behavior and cost limits.
+
+## Statistics Tracking
+
+SmartProxyMiddleware tracks proxy usage:
+
+- **Direct requests** - Connections without proxy
+- **Proxy requests** - Connections using proxy
+- **Blocked retries** - Requests that hit 403/429 and retried with proxy
+- **Blocked domains** - Domains that consistently need proxies
+
+Statistics are logged when spider closes:
+
+```
+📊 Proxy Statistics for 'spider_name':
+   Direct requests: 1847
+   Proxy requests: 153
+   Blocked & retried: 153
+   Blocked domains: 2
+   Domains that needed proxy: example.com, protected-site.com
+```
+
+## Proxy Providers
+
+SmartProxyMiddleware works with any HTTP proxy provider:
+
+### Datacenter Proxies
+
+- [Decodo](https://decodo.com/) ⭐ **(Recommended)** - Residential and datacenter proxies, good value
+- [Bright Data](https://brightdata.com/) - Industry leader
+- [Oxylabs](https://oxylabs.io/) - High quality
+- [IPRoyal](https://iproyal.com/) - Budget friendly
+
+### Residential Proxies
+
+- Use with `--proxy-type residential` flag on crawl command
+- Same smart strategy (direct first, proxy only when blocked)
+- Decodo offers residential proxies - configure RESIDENTIAL_PROXY_* vars in .env
+
+## Technical Details
+
+### Middleware Logic
+
+1. On first request to domain → try direct connection
+2. If response is 403/429 → mark domain as blocked, retry with proxy
+3. On subsequent requests to blocked domain → use proxy immediately
+4. Blocked domains remembered for spider lifetime
+
+### Proxy URL Format
+
+```
+http://username:password@proxy.example.com:8080
+```
+
+### Implementation
+
+- **Location:** `middlewares.py`
+- **Class:** `SmartProxyMiddleware`
+- **Priority:** 350 (in `settings.py`)
+- **Type:** Scrapy downloader middleware
+
+### No Spider Configuration Needed
+
+SmartProxyMiddleware works automatically for all spiders once configured in `.env`. The middleware is enabled by default in `settings.py` with priority 350.
+
+## Troubleshooting
+
+### Proxy not being used
+
+1. Check `.env` has all 4 variables set (USERNAME, PASSWORD, HOST, PORT)
+2. Verify proxy credentials are correct
+3. Test proxy manually:
+   ```bash
+   curl -x http://user:pass@host:port https://httpbin.org/ip
+   ```
+4. Check logs for "Datacenter proxy available" message on spider start
+
+### Still getting blocked with proxy
+
+1. Check if proxy IP is already blocked by target site
+2. Try different proxy provider
+3. Add delays between requests (set `DOWNLOAD_DELAY` in spider config)
+4. Reduce concurrency (set `CONCURRENT_REQUESTS` in spider config)
+5. Switch to residential proxies:
+   ```bash
+   ./scrapai crawl spider_name --project proj --proxy-type residential
+   ```
+
+### Proxy costs too high
+
+SmartProxyMiddleware should already minimize costs by using direct connections first. If costs are still high:
+
+1. Check which domains are marked as blocked (in stats at spider close)
+2. Verify those domains actually need proxies
+3. Consider if site has changed and unblocking is possible
+4. Some sites may require proxies for all requests - this is expected
+5. Consider switching to cheaper proxy provider
+
+### Authentication failed
+
+```bash
+# Verify credentials
+echo $DATACENTER_PROXY_USERNAME
+echo $DATACENTER_PROXY_HOST
+
+# Test proxy connection
+curl -x http://$DATACENTER_PROXY_USERNAME:$DATACENTER_PROXY_PASSWORD@$DATACENTER_PROXY_HOST:$DATACENTER_PROXY_PORT https://httpbin.org/ip
+```
+
+### Connection timeout
+
+1. Check proxy server is reachable:
+   ```bash
+   ping dc.decodo.com
+   ```
+2. Verify firewall allows outbound connections
+3. Try different proxy port
+4. Contact proxy provider support
+
+## Best Practices
+
+1. **Start with datacenter proxies**
+   - Cheaper and faster
+   - Works for most sites
+
+2. **Use auto mode**
+   - Minimizes costs automatically
+   - Expert-in-the-loop prevents surprise charges
+
+3. **Monitor statistics**
+   - Review blocked domains in logs
+   - Adjust strategy based on patterns
+
+4. **Test without proxies first**
+   - Many sites don't require proxies
+   - Save costs where possible
+
+5. **Respect rate limits**
+   - Add delays between requests
+   - Reduce concurrency if needed
+   - Proxies don't make aggressive scraping acceptable
+
+## When to Use Proxies
+
+Recommend proxy setup when:
+
+- User asks about proxies or rate limiting
+- Spider is getting blocked (403/429 errors in logs)
+- User needs to scrape at scale (1000s of pages)
+- User mentions proxy provider (Bright Data, Oxylabs, Smartproxy, etc.)
+- Crawls are failing with "Access Denied" or "Too Many Requests"
+
+## Related Documentation
+
+- [Environment Setup](/configuration/environment)
+- [CLI Reference](/cli/crawl)
+- [Cloudflare Bypass](/advanced/cloudflare)

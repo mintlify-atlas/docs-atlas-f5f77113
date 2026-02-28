@@ -1,0 +1,496 @@
+---
+title: 'Apache Airflow Integration'
+description: 'Production scheduling and monitoring with Apache Airflow'
+icon: 'calendar-clock'
+---
+
+Schedule and monitor ScrapAI spiders at scale with Apache Airflow. Each spider becomes a DAG with automatic discovery, project-based organization, and optional S3 upload.
+
+## Overview
+
+The Airflow integration provides:
+
+- **Automatic DAG generation** from your spider database
+- **Project-based organization** with filtering and access control
+- **Scheduled crawls** with configurable intervals
+- **Real-time monitoring** with logs and execution history
+- **S3 upload** with gzip compression (optional)
+
+## Architecture
+
+```
+┌─────────────────────┐
+│   Airflow Web UI    │  Port 8080
+│   (Browse/Trigger)  │
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  Airflow Scheduler  │  Reads DAG files
+│  (Manages Schedule) │  every few minutes
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  DAG Generator      │  Queries ScrapAI DB
+│  (Python script)    │  Generates DAGs dynamically
+└──────────┬──────────┘
+           │
+┌──────────▼──────────┐
+│  ScrapAI Database   │  Your spider configs
+│  (PostgreSQL)       │
+└─────────────────────┘
+           │
+┌──────────▼──────────┐
+│  Bash Operator      │  Executes:
+│  (Run Task)         │  ./scrapai crawl {name}
+└─────────────────────┘
+```
+
+## Quick Start
+
+### 1. Configure Environment
+
+Add to your `.env` file:
+
+```bash
+# Airflow admin credentials
+_AIRFLOW_WWW_USER_USERNAME=admin
+_AIRFLOW_WWW_USER_PASSWORD=your_secure_password
+
+# Set Airflow UID to match your user
+AIRFLOW_UID=$(id -u)
+
+# Database connection (must match your ScrapAI database)
+DB_HOST=host.docker.internal
+DB_PORT=5432
+DB_NAME=scrapai
+DB_USER=postgres
+DB_PASSWORD=your_password
+```
+
+### 2. Start Airflow
+
+```bash
+docker compose -f docker-compose.airflow.yml up -d
+```
+
+Wait 1-2 minutes for initialization.
+
+### 3. Access Web UI
+
+Open http://localhost:8080 and log in with your credentials.
+
+You'll see DAGs for each spider in your database, named `{project}_{spider_name}`.
+
+## DAG Generation
+
+DAGs are generated dynamically from your spider database. The generator runs on scheduler refresh (every few minutes).
+
+### DAG Naming Convention
+
+Pattern: `{project}_{spider_name}`
+
+Examples:
+- `news_bbc_co_uk`
+- `climate_team_climate_news`
+- `default_example_spider` (if no project set)
+
+### DAG Configuration
+
+Each DAG includes:
+
+```python
+dag = DAG(
+    dag_id=f"{project}_{spider_name}",
+    schedule_interval=None,  # Manual triggering by default
+    tags=['scrapai', f'project:{project}', 'spider'],
+    catchup=False,
+    max_active_runs=1,  # Prevent concurrent runs
+)
+```
+
+### Task Structure
+
+Each DAG has 2-3 tasks:
+
+1. **crawl_spider**: Runs `./scrapai crawl {spider_name} --timeout 28800`
+   - 8-hour graceful timeout
+   - 9-hour hard kill as fallback
+
+2. **verify_results**: Runs `./scrapai show {spider_name} --limit 5`
+   - Verifies data was extracted
+   - Shows sample of results
+
+3. **upload_to_s3** (optional): Compresses and uploads to S3
+   - Only runs if S3 credentials are configured
+   - Gzip compression before upload
+   - Preserves folder structure
+
+## Scheduling Spiders
+
+By default, spiders have no schedule (manual triggering only). To add scheduling:
+
+### Option 1: Database Column
+
+Add a `schedule_interval` column to your spiders table:
+
+```sql
+ALTER TABLE spiders ADD COLUMN schedule_interval VARCHAR(50);
+
+-- Set daily schedule for a spider
+UPDATE spiders SET schedule_interval = '0 0 * * *' WHERE name = 'bbc_co_uk';
+```
+
+### Option 2: Edit DAG Generator
+
+Modify `airflow/dags/scrapai_spider_dags.py`:
+
+```python
+# Custom schedule logic
+if spider.name.startswith('news_'):
+    schedule_interval = '@daily'
+elif spider.name.startswith('research_'):
+    schedule_interval = '@weekly'
+else:
+    schedule_interval = None
+```
+
+### Common Schedules
+
+| Interval | Cron Expression | Description |
+|----------|----------------|-------------|
+| `@hourly` | `0 * * * *` | Every hour at minute 0 |
+| `@daily` | `0 0 * * *` | Daily at midnight |
+| `@weekly` | `0 0 * * 0` | Weekly on Sunday |
+| Custom | `0 */6 * * *` | Every 6 hours |
+| Custom | `0 9 * * 1-5` | Weekdays at 9am |
+
+## Project-Based Organization
+
+### Filtering by Project
+
+1. Go to Airflow UI → DAGs page
+2. Click a project tag: `project:your_project_name`
+3. See only that project's spiders
+
+### Environment Variable Filter
+
+Limit which projects appear in Airflow:
+
+```bash
+# In .env
+AIRFLOW_PROJECT_FILTER=news,research,climate
+```
+
+Only spiders from those projects will generate DAGs.
+
+## Triggering Crawls
+
+### Via Web UI
+
+1. Go to DAGs page
+2. Find your spider DAG
+3. Click the "Play" button (▶)
+4. Monitor progress in real-time
+
+### Via CLI
+
+```bash
+# Trigger a specific spider
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  airflow dags trigger {project}_{spider_name}
+
+# Example
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  airflow dags trigger news_bbc_co_uk
+```
+
+### Via REST API
+
+```bash
+curl -X POST \
+  http://localhost:8080/api/v1/dags/{project}_{spider_name}/dagRuns \
+  -H "Content-Type: application/json" \
+  -u "admin:your_password" \
+  -d '{"conf": {}}'
+```
+
+## Monitoring
+
+### View Execution Logs
+
+1. Click DAG name
+2. Select a DAG run (date/time)
+3. Click task (green/red box)
+4. Click "Log" button
+
+### Execution History
+
+Each DAG shows:
+- Last run status (success/fail)
+- Run duration
+- Success rate over time
+- Task dependencies graph
+
+### Stats Available
+
+- **Duration**: How long each crawl took
+- **Records scraped**: From verify task output
+- **Failures**: Which spiders are broken
+- **Trends**: Performance over time
+
+## S3 Integration
+
+Upload crawl results to S3-compatible storage with automatic gzip compression.
+
+### Configuration
+
+Add to `.env`:
+
+```bash
+S3_ACCESS_KEY=your_access_key
+S3_SECRET_KEY=your_secret_key
+S3_ENDPOINT=https://s3.amazonaws.com
+S3_BUCKET=scrapai-crawls
+```
+
+The DAG generator automatically enables S3 upload if all credentials are present.
+
+### Upload Behavior
+
+From `airflow/dags/scrapai_spider_dags.py:61-139`:
+
+```python
+def upload_to_s3(spider_name: str, **context):
+    # Find latest crawl file
+    data_dir = SCRAPAI_PATH / 'data' / spider_name
+    crawl_files = sorted(glob(str(data_dir / '**' / 'crawl_*.jsonl'), recursive=True), reverse=True)
+    latest_file = crawl_files[0]
+    
+    # Compress to .jsonl.gz
+    with open(latest_path, 'rb') as f_in:
+        with gzip.open(gz_path, 'wb') as f_out:
+            shutil.copyfileobj(f_in, f_out)
+    
+    # Preserve folder structure: spider_name/date/filename.gz
+    relative_path = gz_path.relative_to(SCRAPAI_PATH / 'data')
+    s3_key = str(relative_path)
+    
+    # Upload
+    s3_client.upload_file(str(gz_path), s3_bucket, s3_key)
+    
+    # Clean up local files after successful upload
+    gz_path.unlink()
+    latest_path.unlink()
+```
+
+**Compression savings**: Typically 70-90% for JSONL text data.
+
+**S3 path structure**: `s3://bucket/spider_name/YYYY-MM-DD/crawl_HHMMSS.jsonl.gz`
+
+## Access Control (RBAC)
+
+### Creating Project-Specific Roles
+
+1. Go to Security → List Roles
+2. Click "+" to add new role
+3. Name: `project_news_admin`
+4. Select permissions:
+   - `can_read` on `DAG:news_*`
+   - `can_edit` on `DAG:news_*`
+   - `can_trigger` on `DAG:news_*`
+
+### Creating Users
+
+1. Go to Security → List Users
+2. Click "+" to add new user
+3. Assign role: `project_news_admin`
+
+### Permission Levels
+
+| Role | Can View | Can Trigger | Can Edit | Can Delete |
+|------|----------|-------------|----------|------------|
+| Admin | All DAGs | Yes | Yes | Yes |
+| Project Admin | Project DAGs | Yes | Yes | Yes |
+| Project User | Project DAGs | Yes | Yes | No |
+| Viewer | Project DAGs | No | No | No |
+
+### Programmatic Access Control
+
+Uncomment in `airflow/dags/scrapai_spider_dags.py:193-196`:
+
+```python
+dag = DAG(
+    # ... other settings ...
+    access_control={
+        f'{project}_admin': {'can_read', 'can_edit', 'can_delete'},
+        f'{project}_user': {'can_read', 'can_edit'},
+    },
+)
+```
+
+Then create matching roles in Airflow UI.
+
+## Alerting
+
+### Email Notifications
+
+Edit `DEFAULT_DAG_ARGS` in `scrapai_spider_dags.py:50-58`:
+
+```python
+DEFAULT_DAG_ARGS = {
+    'owner': 'scrapai',
+    'email': ['your-email@example.com'],
+    'email_on_failure': True,
+    'email_on_retry': False,
+    # ... other settings ...
+}
+```
+
+### Configure SMTP
+
+Add to `docker-compose.airflow.yml` environment:
+
+```yaml
+AIRFLOW__SMTP__SMTP_HOST: smtp.gmail.com
+AIRFLOW__SMTP__SMTP_PORT: 587
+AIRFLOW__SMTP__SMTP_USER: your-email@gmail.com
+AIRFLOW__SMTP__SMTP_PASSWORD: your-app-password
+AIRFLOW__SMTP__SMTP_MAIL_FROM: your-email@gmail.com
+```
+
+### Custom Alerts
+
+Add custom task after verify:
+
+```python
+notify_task = BashOperator(
+    task_id='send_notification',
+    bash_command=f'curl -X POST https://your-webhook.com/notify \\
+        -d "{{\"spider\": \"{spider.name}\", \"status\": \"complete\"}}"',
+)
+
+crawl_task >> verify_task >> notify_task
+```
+
+## Management Commands
+
+```bash
+# Start Airflow
+docker compose -f docker-compose.airflow.yml up -d
+
+# Stop Airflow
+docker compose -f docker-compose.airflow.yml down
+
+# View logs
+docker compose -f docker-compose.airflow.yml logs -f airflow-scheduler
+
+# Restart scheduler (to pick up DAG changes)
+docker compose -f docker-compose.airflow.yml restart airflow-scheduler
+
+# List all DAGs
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  airflow dags list
+
+# Pause/unpause DAG
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  airflow dags pause {dag_id}
+
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  airflow dags unpause {dag_id}
+
+# Reset everything (WARNING: deletes all Airflow data)
+docker compose -f docker-compose.airflow.yml down -v
+```
+
+## Troubleshooting
+
+### DAGs Not Showing Up
+
+**Check DAG file for errors:**
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  python /opt/airflow/dags/scrapai_spider_dags.py
+```
+
+**Check scheduler logs:**
+
+```bash
+docker compose -f docker-compose.airflow.yml logs airflow-scheduler
+```
+
+**Verify database connection:**
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  python -c "from core.db import SessionLocal; print(SessionLocal())"
+```
+
+### Spider Crawls Failing
+
+**Check task logs in Airflow UI:**
+
+1. Click failed task (red box)
+2. Click "Log" button
+3. Look for error messages
+
+**Test spider manually:**
+
+```bash
+# SSH into container
+docker compose -f docker-compose.airflow.yml exec airflow-webserver bash
+
+# Try running spider
+cd /opt/scrapai
+source .venv/bin/activate
+./scrapai crawl {spider_name} --project {project}
+```
+
+### Database Connection Issues
+
+**Use host.docker.internal instead of localhost:**
+
+```bash
+# In .env
+DB_HOST=host.docker.internal
+```
+
+**Test connectivity from container:**
+
+```bash
+docker compose -f docker-compose.airflow.yml exec airflow-webserver \
+  ping -c 3 host.docker.internal
+```
+
+## Best Practices
+
+### Resource Management
+
+- Set `max_active_runs=1` to prevent concurrent runs
+- Use `execution_timeout` to prevent runaway tasks
+- Monitor memory usage for large crawls
+
+### Scheduling Strategy
+
+- **High-frequency sites** (news): `@hourly` or `0 */6 * * *`
+- **Daily updates**: `@daily` (midnight) or `0 9 * * *` (9am)
+- **Weekly archives**: `0 0 * * 0` (Sunday midnight)
+- **Manual only**: `None` (on-demand triggering)
+
+### Monitoring
+
+- Set up email alerts for failures
+- Review execution times weekly
+- Check success rates for broken spiders
+- Monitor S3 storage growth
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Parallel Crawling" icon="gauge-high" href="/advanced/parallel-crawling">
+    Run multiple spiders simultaneously with GNU parallel
+  </Card>
+  <Card title="Security" icon="shield" href="/advanced/security">
+    Security validation and agent safety features
+  </Card>
+</CardGroup>

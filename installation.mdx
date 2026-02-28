@@ -1,0 +1,479 @@
+---
+title: "Installation"
+description: "Install ScrapAI CLI on Linux, macOS, or Windows"
+---
+
+## System Requirements
+
+<CardGroup cols={3}>
+  <Card title="Python" icon="python">
+    Version **3.9** or higher
+  </Card>
+  
+  <Card title="Git" icon="git">
+    For cloning the repository
+  </Card>
+  
+  <Card title="Disk Space" icon="hard-drive">
+    ~500 MB (dependencies + browser)
+  </Card>
+</CardGroup>
+
+<Note>
+ScrapAI uses SQLite by default (no database installation required). For production scale, PostgreSQL is recommended.
+</Note>
+
+## Supported Platforms
+
+- **Linux** (Ubuntu, Debian, CentOS, Fedora, Arch)
+- **macOS** (Intel and Apple Silicon)
+- **Windows** (10/11 with WSL recommended, native PowerShell also supported)
+
+## Installation Steps
+
+<Steps>
+  <Step title="Install Python 3.9+">
+    <Tabs>
+      <Tab title="Linux">
+        <Accordion title="Ubuntu/Debian">
+          ```bash
+          sudo apt update
+          sudo apt install python3.9 python3.9-venv python3-pip git
+          ```
+        </Accordion>
+        
+        <Accordion title="CentOS/Fedora">
+          ```bash
+          sudo dnf install python39 python39-pip git
+          ```
+        </Accordion>
+        
+        <Accordion title="Arch Linux">
+          ```bash
+          sudo pacman -S python python-pip git
+          ```
+        </Accordion>
+        
+        Verify installation:
+        ```bash
+        python3 --version
+        ```
+      </Tab>
+      
+      <Tab title="macOS">
+        Install via Homebrew:
+        ```bash
+        brew install python@3.9 git
+        ```
+        
+        Or download from [python.org](https://www.python.org/downloads/macos/)
+        
+        Verify installation:
+        ```bash
+        python3 --version
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        <Warning>
+        **Recommended**: Use WSL (Windows Subsystem for Linux) for the best experience. Follow the Linux instructions after setting up WSL.
+        </Warning>
+        
+        For native Windows:
+        
+        1. Download Python 3.9+ from [python.org](https://www.python.org/downloads/windows/)
+        2. During installation, check **"Add Python to PATH"**
+        3. Install Git from [git-scm.com](https://git-scm.com/download/win)
+        
+        Verify in PowerShell:
+        ```powershell
+        python --version
+        git --version
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/discourselab/scrapai-cli.git
+    cd scrapai-cli
+    ```
+    
+    <Tip>
+    Clone to a location with write permissions. Avoid system directories like `/usr/local/`.
+    </Tip>
+  </Step>
+  
+  <Step title="Run setup">
+    <Tabs>
+      <Tab title="Linux/macOS">
+        ```bash
+        ./scrapai setup
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        ```powershell
+        scrapai setup
+        ```
+      </Tab>
+    </Tabs>
+    
+    The setup process will:
+    
+    <Steps>
+      <Step title="Create virtual environment">
+        Creates a `.venv` directory with isolated Python packages
+      </Step>
+      
+      <Step title="Install dependencies">
+        Installs Scrapy, SQLAlchemy, Alembic, newspaper4k, trafilatura, Playwright, and more
+      </Step>
+      
+      <Step title="Install Playwright Chromium">
+        Downloads Chromium browser for JavaScript rendering and Cloudflare bypass
+        
+        <Warning>
+        **Linux users**: If Chromium fails to launch later, you may need to install system dependencies:
+        ```bash
+        sudo .venv/bin/python -m playwright install-deps chromium
+        ```
+        This requires sudo because it installs system packages (fonts, libraries, etc.).
+        </Warning>
+      </Step>
+      
+      <Step title="Create .env file">
+        Copies `.env.example` to `.env` with default SQLite configuration
+      </Step>
+      
+      <Step title="Initialize database">
+        Runs Alembic migrations to create the database schema
+      </Step>
+      
+      <Step title="Configure Claude Code permissions">
+        If using AI agents, sets up permission rules in `.claude/settings.local.json`
+      </Step>
+    </Steps>
+    
+    <Accordion title="Expected output">
+      ```
+      🚀 Setting up ScrapAI environment...
+      📦 Creating virtual environment...
+      ✅ Virtual environment created
+      📋 Installing requirements...
+      ✅ Requirements installed
+      🌐 Installing Playwright Chromium browser...
+      ✅ Playwright Chromium installed
+      📝 Creating .env from .env.example...
+      ✅ .env file created (using SQLite by default)
+      📁 Checking data directory permissions...
+      ✅ Have permission to write to data directory: ./data
+      🗄️  Initializing database...
+      ✅ Database initialized with migrations
+      🔧 Configuring Claude Code permissions...
+      ✅ Claude Code permissions configured
+      🎉 ScrapAI setup complete!
+      ```
+    </Accordion>
+  </Step>
+  
+  <Step title="Verify installation">
+    <Tabs>
+      <Tab title="Linux/macOS">
+        ```bash
+        ./scrapai verify
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        ```powershell
+        scrapai verify
+        ```
+      </Tab>
+    </Tabs>
+    
+    You should see:
+    ```
+    🔍 Verifying ScrapAI environment...
+    
+    ✅ Virtual environment exists
+    ✅ Core dependencies installed
+    ✅ Database initialized
+    
+    🎉 Environment is ready!
+    ```
+    
+    <Warning>
+    If any checks fail, re-run `./scrapai setup`. If issues persist, see [Troubleshooting](#troubleshooting) below.
+    </Warning>
+  </Step>
+</Steps>
+
+## Configuration
+
+### Database Configuration
+
+By default, ScrapAI uses **SQLite** (file-based database, no setup required):
+
+```bash
+DATABASE_URL=sqlite:///scrapai.db
+```
+
+For production or larger scale, use **PostgreSQL**:
+
+<Steps>
+  <Step title="Install PostgreSQL">
+    <Tabs>
+      <Tab title="Linux">
+        ```bash
+        sudo apt install postgresql postgresql-contrib
+        sudo systemctl start postgresql
+        ```
+      </Tab>
+      
+      <Tab title="macOS">
+        ```bash
+        brew install postgresql
+        brew services start postgresql
+        ```
+      </Tab>
+      
+      <Tab title="Windows">
+        Download from [postgresql.org](https://www.postgresql.org/download/windows/)
+      </Tab>
+    </Tabs>
+  </Step>
+  
+  <Step title="Create database and user">
+    ```bash
+    sudo -u postgres psql
+    ```
+    
+    ```sql
+    CREATE DATABASE scrapai;
+    CREATE USER scrapai_user WITH PASSWORD 'your_secure_password';
+    GRANT ALL PRIVILEGES ON DATABASE scrapai TO scrapai_user;
+    \q
+    ```
+  </Step>
+  
+  <Step title="Update .env">
+    Edit `.env` and replace the SQLite URL:
+    
+    ```bash
+    DATABASE_URL=postgresql://scrapai_user:your_secure_password@localhost:5432/scrapai
+    ```
+  </Step>
+  
+  <Step title="Run migrations">
+    ```bash
+    ./scrapai db migrate
+    ```
+  </Step>
+  
+  <Step title="Transfer existing data (optional)">
+    If you have data in SQLite:
+    
+    ```bash
+    ./scrapai db transfer sqlite:///scrapai.db
+    ```
+  </Step>
+</Steps>
+
+### Proxy Configuration
+
+ScrapAI supports smart proxy escalation. Configure proxies in `.env`:
+
+```bash
+# Datacenter Proxy (recommended - faster, cheaper)
+DATACENTER_PROXY_USERNAME=your_username
+DATACENTER_PROXY_PASSWORD=your_password
+DATACENTER_PROXY_HOST=your-datacenter-proxy.com
+DATACENTER_PROXY_PORT=10000  # Port 10000 = rotating IPs
+
+# Residential Proxy (for sites that block datacenter IPs)
+RESIDENTIAL_PROXY_USERNAME=your_username
+RESIDENTIAL_PROXY_PASSWORD=your_password
+RESIDENTIAL_PROXY_HOST=your-residential-proxy.com
+RESIDENTIAL_PROXY_PORT=7000  # Port 7000 = rotating residential IPs
+```
+
+<Tip>
+Proxies are optional. ScrapAI starts with direct connections and only uses proxies when needed (403/429 errors). It learns which domains require proxies and remembers for future crawls.
+</Tip>
+
+### S3 Storage Configuration
+
+For automatic uploads to S3-compatible storage (Hetzner, DigitalOcean Spaces, Wasabi, Backblaze, etc.):
+
+```bash
+S3_ACCESS_KEY=your_access_key_here
+S3_SECRET_KEY=your_secret_key_here
+S3_ENDPOINT=https://your-s3-endpoint.com
+S3_BUCKET=your-bucket-name
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Virtual environment creation fails">
+    **Error**: `The virtual environment was not created successfully`
+    
+    **Solution**:
+    ```bash
+    # Install venv module
+    sudo apt install python3.9-venv  # Ubuntu/Debian
+    
+    # Or use a different Python version
+    python3.10 -m venv .venv
+    ```
+  </Accordion>
+  
+  <Accordion title="Playwright Chromium won't launch (Linux)">
+    **Error**: `Error: browserType.launch: Host system is missing dependencies`
+    
+    **Solution**: Install system dependencies:
+    ```bash
+    sudo .venv/bin/python -m playwright install-deps chromium
+    ```
+    
+    This installs required system packages (fonts, libraries, etc.).
+  </Accordion>
+  
+  <Accordion title="Permission denied when writing to data directory">
+    **Error**: `PermissionError: [Errno 13] Permission denied: './data'`
+    
+    **Solution**: Change the data directory in `.env`:
+    ```bash
+    DATA_DIR=~/scrapai-data
+    ```
+    
+    Or fix permissions:
+    ```bash
+    sudo chown -R $USER:$USER ./data
+    chmod -R 755 ./data
+    ```
+  </Accordion>
+  
+  <Accordion title="Database connection fails (PostgreSQL)">
+    **Error**: `sqlalchemy.exc.OperationalError: could not connect to server`
+    
+    **Solutions**:
+    1. Verify PostgreSQL is running:
+       ```bash
+       sudo systemctl status postgresql
+       ```
+    
+    2. Check your `DATABASE_URL` in `.env`
+    
+    3. Test connection:
+       ```bash
+       psql -U scrapai_user -d scrapai -h localhost
+       ```
+    
+    4. Check PostgreSQL logs:
+       ```bash
+       sudo tail -f /var/log/postgresql/postgresql-*.log
+       ```
+  </Accordion>
+  
+  <Accordion title="Command not found: ./scrapai (Linux/macOS)">
+    **Error**: `bash: ./scrapai: No such file or directory`
+    
+    **Solution**: Make the script executable:
+    ```bash
+    chmod +x scrapai
+    ./scrapai verify
+    ```
+  </Accordion>
+  
+  <Accordion title="Python version too old">
+    **Error**: `ERROR: This package requires Python 3.9 or higher`
+    
+    **Solution**: Install a newer Python version:
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install python3.10 python3.10-venv
+    
+    # macOS
+    brew install python@3.10
+    
+    # Then recreate the venv
+    rm -rf .venv
+    python3.10 -m venv .venv
+    ./scrapai setup
+    ```
+  </Accordion>
+  
+  <Accordion title="Windows: Scripts are disabled">
+    **Error**: `cannot be loaded because running scripts is disabled`
+    
+    **Solution**: Enable script execution in PowerShell:
+    ```powershell
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Upgrading
+
+To upgrade to the latest version:
+
+```bash
+git pull origin main
+./scrapai setup  # Re-run setup to install new dependencies
+./scrapai db migrate  # Apply any new database migrations
+```
+
+<Warning>
+Always backup your database before upgrading:
+```bash
+# SQLite
+cp scrapai.db scrapai.db.backup
+
+# PostgreSQL
+pg_dump -U scrapai_user scrapai > scrapai_backup.sql
+```
+</Warning>
+
+## Uninstallation
+
+To completely remove ScrapAI:
+
+```bash
+cd scrapai-cli
+
+# Remove virtual environment
+rm -rf .venv
+
+# Remove database (if using SQLite)
+rm scrapai.db
+
+# Remove data directory
+rm -rf data/
+
+# Remove the repository
+cd ..
+rm -rf scrapai-cli/
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build your first scraper in 5 minutes
+  </Card>
+  
+  <Card title="CLI Reference" icon="terminal" href="/cli-reference">
+    Complete command reference
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/configuration">
+    Advanced configuration options
+  </Card>
+  
+  <Card title="GitHub Repository" icon="github" href="https://github.com/discourselab/scrapai-cli">
+    View source code and report issues
+  </Card>
+</CardGroup>
