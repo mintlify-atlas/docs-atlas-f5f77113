@@ -1,0 +1,150 @@
+{
+  "projectType": "cli-tool",
+  "projectName": "ScrapAI",
+  "projectDescription": "AI-powered web scraping CLI that generates production-ready Scrapy spiders from natural language descriptions.",
+  "theme": "aspen",
+  "primaryColor": "#2563eb",
+  "lightColor": "#3b82f6",
+  "darkColor": "#1e40af",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/how-it-works",
+              "concepts/architecture",
+              "concepts/database-first"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/cloudflare-bypass",
+              "guides/proxy-escalation",
+              "guides/custom-callbacks",
+              "guides/queue-processing",
+              "guides/checkpoint-resume",
+              "guides/incremental-crawling",
+              "guides/extractors",
+              "guides/data-processors"
+            ]
+          },
+          {
+            "group": "AI Agents",
+            "pages": [
+              "agents/overview",
+              "agents/claude-code",
+              "agents/workflow"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/environment",
+              "configuration/database",
+              "configuration/proxies",
+              "configuration/s3-storage"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/airflow-scheduling",
+              "advanced/parallel-crawling",
+              "advanced/migration",
+              "advanced/security"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "CLI Reference",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "cli/overview",
+              "cli/setup",
+              "cli/spiders",
+              "cli/crawl",
+              "cli/queue",
+              "cli/data",
+              "cli/inspect",
+              "cli/database",
+              "cli/projects"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Spider Configuration",
+            "pages": [
+              "api/spider-schema",
+              "api/rules",
+              "api/settings",
+              "api/callbacks"
+            ]
+          },
+          {
+            "group": "Extractors",
+            "pages": [
+              "api/extractors-overview",
+              "api/newspaper",
+              "api/trafilatura",
+              "api/custom-extractors",
+              "api/playwright"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "AI-powered spider generation from natural language",
+    "Database-first spider management with JSON configs",
+    "Cloudflare bypass with cookie caching",
+    "Smart proxy escalation (direct → datacenter → residential)",
+    "Checkpoint pause/resume for long crawls",
+    "Incremental crawling with DeltaFetch",
+    "Multiple extraction strategies (newspaper, trafilatura, custom CSS, Playwright)",
+    "Queue-based batch processing",
+    "Project-based organization",
+    "Apache Airflow integration for scheduling"
+  ],
+  "publicApiSurface": [
+    "./scrapai setup",
+    "./scrapai verify",
+    "./scrapai spiders list",
+    "./scrapai spiders import",
+    "./scrapai spiders delete",
+    "./scrapai crawl",
+    "./scrapai crawl-all",
+    "./scrapai show",
+    "./scrapai export",
+    "./scrapai queue add",
+    "./scrapai queue bulk",
+    "./scrapai queue list",
+    "./scrapai queue next",
+    "./scrapai inspect",
+    "./scrapai analyze",
+    "./scrapai extract-urls",
+    "./scrapai db migrate",
+    "./scrapai db stats",
+    "./scrapai db query",
+    "./scrapai projects list"
+  ]
+}
