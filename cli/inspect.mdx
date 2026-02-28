@@ -384,6 +384,68 @@ $ ./scrapai analyze page.html --find "author"
 ✓ Found 3 elements
 ```
 
+## extract-urls
+
+Extract all URLs from a saved HTML file. Useful for understanding URL patterns on a site during analysis.
+
+### Syntax
+
+```bash
+./scrapai extract-urls --file <html_file> [options]
+```
+
+### Arguments
+
+<ParamField path="--file" type="string" required>
+  Path to HTML file to extract URLs from.
+</ParamField>
+
+### Options
+
+<ParamField path="--output" type="string">
+  Output file path. If not specified, URLs are printed to console.
+</ParamField>
+
+<ParamField path="-o" type="string">
+  Short form of `--output`.
+</ParamField>
+
+### Examples
+
+```bash
+# Extract URLs to console
+./scrapai extract-urls --file data/news/inspect/example_com/page.html
+
+# Extract URLs to file
+./scrapai extract-urls --file page.html --output urls.txt
+
+# Short form
+./scrapai extract-urls --file page.html -o urls.txt
+```
+
+### Output
+
+```bash
+$ ./scrapai extract-urls --file page.html
+https://example.com/
+https://example.com/about
+https://example.com/contact
+https://example.com/articles/2026/02/story-1
+https://example.com/articles/2026/02/story-2
+...
+```
+
+When using `--output`, URLs are written one per line to the specified file:
+
+```bash
+$ ./scrapai extract-urls --file page.html -o urls.txt
+✅ Extracted 147 URLs to urls.txt
+```
+
+<Tip>
+Use `extract-urls` after `inspect` to analyze URL patterns and design spider rules. Look for common patterns like `/articles/[year]/[month]/[slug]` to write effective regex rules.
+</Tip>
+
 ## Workflow: Inspect to Spider Config
 
 ### 1. Inspect the Site
@@ -392,7 +454,15 @@ $ ./scrapai analyze page.html --find "author"
 ./scrapai inspect https://example.com --project myproject --browser
 ```
 
-### 2. Analyze HTML Structure
+### 2. Extract URLs (Optional)
+
+```bash
+./scrapai extract-urls --file data/myproject/inspect/example_com/page.html -o urls.txt
+```
+
+Review URL patterns to design effective spider rules.
+
+### 3. Analyze HTML Structure
 
 ```bash
 ./scrapai analyze data/myproject/inspect/example_com/page.html
@@ -400,7 +470,7 @@ $ ./scrapai analyze page.html --find "author"
 
 Note the CSS selectors for title, content, author, etc.
 
-### 3. Test Selectors
+### 4. Test Selectors
 
 ```bash
 ./scrapai analyze page.html --test "h1.article-title::text"
@@ -408,7 +478,7 @@ Note the CSS selectors for title, content, author, etc.
 ./scrapai analyze page.html --test "span.author-name::text"
 ```
 
-### 4. Create Spider Config
+### 5. Create Spider Config
 
 Write `spider.json` using discovered selectors:
 
@@ -436,7 +506,7 @@ Write `spider.json` using discovered selectors:
 }
 ```
 
-### 5. Import and Test
+### 6. Import and Test
 
 ```bash
 ./scrapai spiders import spider.json --project myproject
